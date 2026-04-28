@@ -1,0 +1,24 @@
+[Unit]
+Description=Trading Engine Test Service
+After=network.target postgresql.service redis-server.service
+Wants=postgresql.service redis-server.service
+
+[Service]
+User=trader
+Group=trader
+WorkingDirectory=/opt/trading-system/app
+EnvironmentFile=/opt/trading-system/shared/.env.test
+ExecStart=/opt/trading-system/app/.venv/bin/python -m trading_system.trading.engine --mode test --env-file /opt/trading-system/shared/.env.test
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/trading-system/shared /opt/trading-system/app
+StandardOutput=append:/opt/trading-system/shared/logs/test.out.log
+StandardError=append:/opt/trading-system/shared/logs/test.err.log
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,24 @@
+[Unit]
+Description=Trading API Service
+After=network.target postgresql.service redis-server.service
+Wants=postgresql.service redis-server.service
+
+[Service]
+User=trader
+Group=trader
+WorkingDirectory=/opt/trading-system/app
+EnvironmentFile=/opt/trading-system/shared/.env.live
+ExecStart=/opt/trading-system/app/.venv/bin/uvicorn trading_system.api.app:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/trading-system/shared /opt/trading-system/app
+StandardOutput=append:/opt/trading-system/shared/logs/api.out.log
+StandardError=append:/opt/trading-system/shared/logs/api.err.log
+
+[Install]
+WantedBy=multi-user.target
+

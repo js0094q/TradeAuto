@@ -1,0 +1,24 @@
+[Unit]
+Description=Trading Telegram Bot
+After=network.target trading-api.service
+Wants=trading-api.service
+
+[Service]
+User=trader
+Group=trader
+WorkingDirectory=/opt/trading-system/app
+EnvironmentFile=/opt/trading-system/shared/.env.live
+ExecStart=/opt/trading-system/app/.venv/bin/python -m trading_system.telegram.bot --env-file /opt/trading-system/shared/.env.live
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/trading-system/shared /opt/trading-system/app
+StandardOutput=append:/opt/trading-system/shared/logs/telegram.out.log
+StandardError=append:/opt/trading-system/shared/logs/telegram.err.log
+
+[Install]
+WantedBy=multi-user.target
+

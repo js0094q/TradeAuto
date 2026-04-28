@@ -1,0 +1,29 @@
+[project]
+name = "trading-system"
+version = "0.1.0"
+description = "Live-capable Alpaca trading system scaffold for Njalla VPS deployment."
+requires-python = ">=3.11"
+dependencies = [
+  "alpaca-py>=0.30.0",
+  "fastapi>=0.115.0",
+  "psycopg[binary]>=3.2.0",
+  "python-telegram-bot>=21.0",
+  "redis>=5.0.0",
+  "requests>=2.32.0",
+  "uvicorn[standard]>=0.30.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+  "ruff>=0.6.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
