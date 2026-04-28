@@ -85,13 +85,12 @@ journalctl -u trading-engine-live.service -n 100 --no-pager
 Health:
 
 ```bash
-curl -fsS https://your-domain.example/health
-curl -fsS -u operator:password -H "X-Admin-Token: $ADMIN_TOKEN" https://your-domain.example/ready
+curl -fsS https://jlsprojects.com/health
+curl -fsS -u operator:password -H "X-Admin-Token: $ADMIN_TOKEN" https://jlsprojects.com/ready
 ```
 
 Rollback:
 
 ```bash
-APP_ROOT=/opt/trading-system DOMAIN=your-domain.example ./scripts/rollback.sh
+APP_ROOT=/opt/trading-system DOMAIN=jlsprojects.com ./scripts/rollback.sh
 ```
-

@@ -13,8 +13,26 @@ This repo includes a policy-gated autonomy scaffold:
 - `mcp/`: MCP integration notes and security rules.
 - `memory/`: generated event, decision, outcome, and reviewed lesson layout.
 - `policies/`: hard rules for live trading, deployment, and destructive actions.
+- `apps/dashboard/`: Vercel-deployable monitoring dashboard with server-side VPS proxying.
 
 Learning workflows must follow: Observe -> Log -> Score -> Summarize -> Retrieve -> Propose Change -> Test -> Human/Policy Gate -> Deploy.
+
+## Vercel Dashboard
+
+The dashboard is a Next.js app rooted at `apps/dashboard`.
+
+Required Vercel env vars:
+
+```text
+TRADING_API_BASE_URL=https://jlsprojects.com
+TRADING_API_ADMIN_TOKEN=<ADMIN_TOKEN from /opt/trading-system/shared/.env.live>
+TRADING_API_BASIC_AUTH=<operator>:<password from /opt/trading-system/shared/config/nginx_operator_password>
+DASHBOARD_ACCESS_TOKEN=<operator login token>
+DASHBOARD_SESSION_SECRET=<random cookie secret>
+DASHBOARD_ALLOW_CONTROL_ACTIONS=false
+```
+
+Keep control actions disabled unless operator mutations are explicitly approved.
 
 ## Local Setup
 
@@ -110,20 +128,20 @@ python3 scripts/validate_env.py --env-file /opt/trading-system/shared/.env.live 
 Deploy:
 
 ```bash
-APP_ROOT=/opt/trading-system MODE=live ENV_FILE=/opt/trading-system/shared/.env.live DOMAIN=your-domain.example ./scripts/deploy.sh
+APP_ROOT=/opt/trading-system MODE=live ENV_FILE=/opt/trading-system/shared/.env.live DOMAIN=jlsprojects.com ./scripts/deploy.sh
 ```
 
 Rollback:
 
 ```bash
-APP_ROOT=/opt/trading-system DOMAIN=your-domain.example ./scripts/rollback.sh
+APP_ROOT=/opt/trading-system DOMAIN=jlsprojects.com ./scripts/rollback.sh
 ```
 
 Health surfaces:
 
 - `/health`: process health, harmless.
 - `/ready`: protected readiness; requires Nginx basic auth and `X-Admin-Token`.
-- `/metrics`: localhost-only in Nginx and app-token protected.
+- `/metrics`: Nginx basic-auth protected and app-token protected.
 
 Live acceptance gates:
 
