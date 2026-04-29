@@ -1,0 +1,336 @@
+{
+  "feed": "iex",
+  "generated_at": "2026-04-29T04:19:51.349979+00:00",
+  "live_trading_changed": false,
+  "profile": "paper",
+  "research_only": true,
+  "results": [
+    {
+      "annualized_return": 0.0530722514062868,
+      "average_max_drawdown": 0.010977993441016153,
+      "average_profit_factor": 2.1827753036704247,
+      "average_return": 0.030280901647510912,
+      "average_sharpe": 1.0711529468679595,
+      "average_stress_return_delta": 0.005759050467663889,
+      "conclusion": "Eligible for paper-shadow validation only; no live promotion implied.",
+      "recommendation": "paper_validate",
+      "robustness": 0.75,
+      "role": "best default starting system",
+      "strategy": "equity_etf_trend_regime_v1",
+      "total_trades": 127,
+      "variant": "current 200SMA + 60d rotation baseline",
+      "window_results": [
+        {
+          "annualized_return": 0.10010762003283236,
+          "metrics": {
+            "max_drawdown": 0.010176667269857281,
+            "profit_factor": 2.678111795055463,
+            "sharpe": 3.42417153790557,
+            "sortino": 12.004381348976562,
+            "total_return": 0.03105530120892546,
+            "trade_count": 24,
+            "win_rate": 0.5
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.010709061124071741,
+            "total_return": 0.02669463249846898
+          },
+          "stress_return_delta": 0.00436066871045648,
+          "trades_per_day": 0.20512820512820512,
+          "window": {
+            "end": "2026-04-28",
+            "name": "recent_short",
+            "start": "2026-01-01"
+          }
+        },
+        {
+          "annualized_return": 0.08462852632161111,
+          "metrics": {
+            "max_drawdown": 0.01078430658243713,
+            "profit_factor": 2.8212922764602295,
+            "sharpe": 3.661519491874004,
+            "sortino": 10.350141166846441,
+            "total_return": 0.08390455513620235,
+            "trade_count": 68,
+            "win_rate": 0.5588235294117647
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.01214119251407581,
+            "total_return": 0.07155301479769219
+          },
+          "stress_return_delta": 0.012351540338510159,
+          "trades_per_day": 0.1878453038674033,
+          "window": {
+            "end": "2026-04-28",
+            "name": "medium_window",
+            "start": "2025-05-01"
+          }
+        },
+        {
+          "annualized_return": -0.06865100515470579,
+          "metrics": {
+            "max_drawdown": 0.019934824726963854,
+            "profit_factor": 0.23169714316600698,
+            "sharpe": -9.017921408218177,
+            "sortino": -11.94945705338371,
+            "total_return": -0.01700085819662645,
+            "trade_count": 19,
+            "win_rate": 0.3157894736842105
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.022083149490719517,
+            "total_return": -0.020415517098423253
+          },
+          "stress_return_delta": 0.003414658901796805,
+          "trades_per_day": 0.2159090909090909,
+          "window": {
+            "end": "2025-04-30",
+            "name": "prior_volatile_window",
+            "start": "2025-02-01"
+          }
+        },
+        {
+          "annualized_return": 0.09620386442540951,
+          "metrics": {
+            "max_drawdown": 0.0030161751848063433,
+            "profit_factor": 4.884980205821275,
+            "sharpe": 6.216842165910441,
+            "sortino": 57.59374911827268,
+            "total_return": 0.023164608441542296,
+            "trade_count": 16,
+            "win_rate": 0.5625
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.004818718177427509,
+            "total_return": 0.02025527452165018
+          },
+          "stress_return_delta": 0.002909333919892114,
+          "trades_per_day": 0.17582417582417584,
+          "window": {
+            "end": "2025-08-31",
+            "name": "sideways_window",
+            "start": "2025-06-01"
+          }
+        }
+      ]
+    },
+    {
+      "annualized_return": 0.004502580777006909,
+      "average_max_drawdown": 0.011873179421501009,
+      "average_profit_factor": 1.0526521674185725,
+      "average_return": 0.008384554337748103,
+      "average_sharpe": -0.5555511938759474,
+      "average_stress_return_delta": 0.01316924200537178,
+      "conclusion": "Keep the indicator stack as an implementation blueprint, but do not replace the simpler baseline until robustness improves.",
+      "recommendation": "watchlist",
+      "robustness": 0.5,
+      "role": "default stack refinement",
+      "strategy": "equity_etf_trend_regime_v1",
+      "total_trades": 334,
+      "variant": "200SMA + 20/50EMA + RSI + ATR sizing + RVOL",
+      "window_results": [
+        {
+          "annualized_return": -0.01717203358732955,
+          "metrics": {
+            "max_drawdown": 0.012397114001107839,
+            "profit_factor": 0.7638665128884113,
+            "sharpe": -1.2458841951658501,
+            "sortino": -2.1831990027372785,
+            "total_return": -0.005536884221803067,
+            "trade_count": 51,
+            "win_rate": 0.45098039215686275
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.015481034649235517,
+            "total_return": -0.012648196328800498
+          },
+          "stress_return_delta": 0.007111312106997431,
+          "trades_per_day": 0.4358974358974359,
+          "window": {
+            "end": "2026-04-28",
+            "name": "recent_short",
+            "start": "2026-01-01"
+          }
+        },
+        {
+          "annualized_return": 0.04098234129861278,
+          "metrics": {
+            "max_drawdown": 0.012397114001107839,
+            "profit_factor": 1.5065243566662674,
+            "sharpe": 1.9862810074206636,
+            "sortino": 4.553501071118635,
+            "total_return": 0.040638746989170874,
+            "trade_count": 196,
+            "win_rate": 0.5051020408163265
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.015481034649235517,
+            "total_return": 0.009923338956056836
+          },
+          "stress_return_delta": 0.03071540803311404,
+          "trades_per_day": 0.5414364640883977,
+          "window": {
+            "end": "2026-04-28",
+            "name": "medium_window",
+            "start": "2025-05-01"
+          }
+        },
+        {
+          "annualized_return": -0.06021563042587463,
+          "metrics": {
+            "max_drawdown": 0.017711249482223357,
+            "profit_factor": 0.348848128413714,
+            "sharpe": -5.6140477801950075,
+            "sortino": -6.5742727335241655,
+            "total_return": -0.014861676643593282,
+            "trade_count": 27,
+            "win_rate": 0.3333333333333333
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.0207935355118959,
+            "total_return": -0.019447119175558476
+          },
+          "stress_return_delta": 0.0045854425319651945,
+          "trades_per_day": 0.3068181818181818,
+          "window": {
+            "end": "2025-04-30",
+            "name": "prior_volatile_window",
+            "start": "2025-02-01"
+          }
+        },
+        {
+          "annualized_return": 0.05441564582261904,
+          "metrics": {
+            "max_drawdown": 0.004987240201565,
+            "profit_factor": 1.591369671705897,
+            "sharpe": 2.6514461924364046,
+            "sortino": 5.027396251714445,
+            "total_return": 0.013298031227217885,
+            "trade_count": 60,
+            "win_rate": 0.55
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.007778096180340799,
+            "total_return": 0.003033225877807424
+          },
+          "stress_return_delta": 0.01026480534941046,
+          "trades_per_day": 0.6593406593406593,
+          "window": {
+            "end": "2025-08-31",
+            "name": "sideways_window",
+            "start": "2025-06-01"
+          }
+        }
+      ]
+    },
+    {
+      "annualized_return": 0.024656115727650085,
+      "average_max_drawdown": 0.0034618235235174505,
+      "average_profit_factor": 2.1824914218285536,
+      "average_return": 0.011679890469733622,
+      "average_sharpe": 6.075029018340676,
+      "average_stress_return_delta": 0.002447651064599983,
+      "conclusion": "Paper-validate only as an overlay on the ETF momentum stack, not as a standalone system.",
+      "recommendation": "paper_validate",
+      "robustness": 0.75,
+      "role": "highest-score overlay candidate",
+      "strategy": "cross_market_high_beta_confirmation_v1",
+      "total_trades": 54,
+      "variant": "high-beta ETF rotation gated by BTC/ETH 50d trend",
+      "window_results": [
+        {
+          "annualized_return": 0.04338375267091932,
+          "metrics": {
+            "max_drawdown": 0.006435351740298938,
+            "profit_factor": 2.729965687314214,
+            "sharpe": 5.140213137437469,
+            "sortino": 13.66287199503266,
+            "total_return": 0.013706447241521773,
+            "trade_count": 16,
+            "win_rate": 0.5
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.006971122628421872,
+            "total_return": 0.010805650567641533
+          },
+          "stress_return_delta": 0.0029007966738802404,
+          "trades_per_day": 0.13675213675213677,
+          "window": {
+            "end": "2026-04-28",
+            "name": "recent_short",
+            "start": "2026-01-01"
+          }
+        },
+        {
+          "annualized_return": 0.02602416841825117,
+          "metrics": {
+            "max_drawdown": 0.006435351740298938,
+            "profit_factor": 3.004277990819177,
+            "sharpe": 5.775929029361014,
+            "sortino": 16.1085011847119,
+            "total_return": 0.02580753460196014,
+            "trade_count": 32,
+            "win_rate": 0.5
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.006971122628421872,
+            "total_return": 0.020007390304596726
+          },
+          "stress_return_delta": 0.005800144297363415,
+          "trades_per_day": 0.08839779005524862,
+          "window": {
+            "end": "2026-04-28",
+            "name": "medium_window",
+            "start": "2025-05-01"
+          }
+        },
+        {
+          "annualized_return": 0.0,
+          "metrics": {
+            "max_drawdown": 0.0,
+            "profit_factor": 0.0,
+            "sharpe": 0.0,
+            "sortino": 0.0,
+            "total_return": 0.0,
+            "trade_count": 0,
+            "win_rate": 0.0
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.0,
+            "total_return": 0.0
+          },
+          "stress_return_delta": 0.0,
+          "trades_per_day": 0.0,
+          "window": {
+            "end": "2025-04-30",
+            "name": "prior_volatile_window",
+            "start": "2025-02-01"
+          }
+        },
+        {
+          "annualized_return": 0.029216541821429853,
+          "metrics": {
+            "max_drawdown": 0.000976590613471926,
+            "profit_factor": 8.378301548317767,
+            "sharpe": 13.383973906564224,
+            "sortino": 90.34861510939602,
+            "total_return": 0.007205580035452575,
+            "trade_count": 6,
+            "win_rate": 0.6666666666666666
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.0013367622090270743,
+            "total_return": 0.006115916748296301
+          },
+          "stress_return_delta": 0.0010896632871562747,
+          "trades_per_day": 0.06593406593406594,
+          "window": {
+            "end": "2025-08-31",
+            "name": "sideways_window",
+            "start": "2025-06-01"
+          }
+        }
+      ]
+    }
+  ]
+}

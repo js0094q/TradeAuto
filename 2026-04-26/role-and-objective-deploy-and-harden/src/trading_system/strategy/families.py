@@ -3,8 +3,11 @@ from __future__ import annotations
 from trading_system.strategy.base import Strategy
 from trading_system.strategies import (
     CryptoTrendBreakoutV1,
+    CrossMarketHighBetaConfirmationV1,
     CrossSectionalMomentumRotationV1,
+    EquityEtfTrendRegimeV1,
     EtfTimeSeriesMomentumV1,
+    LiquidEtfMeanReversionV1,
     OpeningRangeBreakoutV1,
     PostEarningsDriftV1,
     VwapMeanReversionV1,
@@ -60,6 +63,9 @@ class EarningsNewsAvoidanceLayer(Strategy):
 
 
 DEFAULT_STRATEGIES: tuple[type[Strategy], ...] = (
+    EquityEtfTrendRegimeV1,
+    CrossMarketHighBetaConfirmationV1,
+    LiquidEtfMeanReversionV1,
     EtfTimeSeriesMomentumV1,
     CrossSectionalMomentumRotationV1,
     OpeningRangeBreakoutV1,

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Any
 
 
 class PromotionStage(StrEnum):
@@ -19,6 +21,20 @@ class StrategySignal:
     direction: str
     confidence: float
     reason: str
+    target_weight: float = 0.0
+    indicators: dict[str, Any] = field(default_factory=dict)
+    risk_passed: bool = True
+    risk_blocks: tuple[str, ...] = ()
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+    mode: str = "paper"
+
+    @property
+    def strategy_name(self) -> str:
+        return self.strategy
+
+    @property
+    def action(self) -> str:
+        return self.direction
 
 
 @dataclass(frozen=True)
@@ -57,4 +73,3 @@ class Strategy:
             confidence=0.0,
             reason="base strategy has no signal",
         )
-

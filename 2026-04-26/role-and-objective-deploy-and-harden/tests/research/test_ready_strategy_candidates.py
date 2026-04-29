@@ -3,9 +3,12 @@ from __future__ import annotations
 import unittest
 
 from trading_system.strategies import (
+    CrossMarketHighBetaConfirmationV1,
     CryptoTrendBreakoutV1,
     CrossSectionalMomentumRotationV1,
+    EquityEtfTrendRegimeV1,
     EtfTimeSeriesMomentumV1,
+    LiquidEtfMeanReversionV1,
     OpeningRangeBreakoutV1,
     PostEarningsDriftV1,
     VwapMeanReversionV1,
@@ -24,12 +27,27 @@ def sample_volumes(length: int = 260, start: int = 1_000_000) -> list[float]:
 class StrategyCandidateSignalTests(unittest.TestCase):
     def test_all_strategies_registered(self) -> None:
         registry = default_registry()
+        self.assertIn("equity_etf_trend_regime_v1", registry.names())
+        self.assertIn("cross_market_high_beta_confirmation_v1", registry.names())
+        self.assertIn("liquid_etf_mean_reversion_v1", registry.names())
         self.assertIn("etf_time_series_momentum_v1", registry.names())
         self.assertIn("cross_sectional_momentum_rotation_v1", registry.names())
         self.assertIn("opening_range_breakout_v1", registry.names())
         self.assertIn("vwap_mean_reversion_v1", registry.names())
         self.assertIn("post_earnings_drift_v1", registry.names())
         self.assertIn("crypto_trend_breakout_v1", registry.names())
+
+    def test_new_research_candidates_have_paper_first_defaults(self) -> None:
+        default = EquityEtfTrendRegimeV1()
+        overlay = CrossMarketHighBetaConfirmationV1()
+        reversion = LiquidEtfMeanReversionV1()
+        self.assertTrue(default.default_enabled)
+        self.assertEqual(default.config.mode, "paper")
+        self.assertFalse(default.config.execution.allow_live_orders)
+        self.assertFalse(overlay.default_enabled)
+        self.assertEqual(overlay.config.mode, "paper_shadow")
+        self.assertFalse(reversion.default_enabled)
+        self.assertEqual(reversion.config.mode, "paper_shadow")
 
     def test_etf_strategy_entry_and_exit(self) -> None:
         strat = EtfTimeSeriesMomentumV1()
@@ -190,4 +208,3 @@ class StrategyCandidateSignalTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
