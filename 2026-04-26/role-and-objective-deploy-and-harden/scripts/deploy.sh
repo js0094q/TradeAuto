@@ -87,7 +87,7 @@ for service in "${SERVICES[@]}"; do
 done
 
 curl -fsS "https://${DOMAIN}/health" >/dev/null
-curl -fsS -H "X-Admin-Token: ${ADMIN_TOKEN:-}" "https://${DOMAIN}/ready" >/dev/null
+curl -fsS -H "X-Admin-Token: ${ADMIN_TOKEN:-}" "http://127.0.0.1:${PORT:-8000}/ready" >/dev/null
 notify_telegram "Trading deployment succeeded: ${TIMESTAMP}"
 trap - ERR
 echo "deployment complete: ${RELEASE_DIR}"
