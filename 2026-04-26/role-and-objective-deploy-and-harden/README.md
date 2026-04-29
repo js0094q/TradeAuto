@@ -24,8 +24,10 @@ The dashboard is a Next.js app rooted at `apps/dashboard`.
 Required Vercel env vars:
 
 ```text
-TRADING_API_BASE_URL=https://jlsprojects.com
-TRADING_API_ADMIN_TOKEN=<ADMIN_TOKEN from /opt/trading-system/shared/.env.live>
+TRADING_API_BASE_URL=https://45.142.140.188.sslip.io
+TRADING_API_HOST_HEADER=45.142.140.188.sslip.io
+TRADING_API_TLS_SERVERNAME=45.142.140.188.sslip.io
+TRADING_API_ADMIN_TOKEN=<ADMIN_TOKEN from the active /opt/trading-system/shared/.env.runtime target>
 TRADING_API_BASIC_AUTH=<operator>:<password from /opt/trading-system/shared/config/nginx_operator_password>
 DASHBOARD_ACCESS_TOKEN=<operator login token>
 DASHBOARD_SESSION_SECRET=<random cookie secret>
@@ -33,6 +35,22 @@ DASHBOARD_ALLOW_CONTROL_ACTIONS=false
 ```
 
 Keep control actions disabled unless operator mutations are explicitly approved.
+
+For paper-mode evaluation on the VPS, start from `.env.paper.example` and keep `.env.runtime` aligned to the active paper env when the API service is serving paper dashboard data.
+
+## Paper Evaluation Sizing
+
+Paper mode is intended for decision-grade evaluation without live-money exposure. The VPS paper runtime should use the following sizing posture unless a stricter test is being run:
+
+- `PAPER_ENTRY_BANKROLL_USD=100000`
+- `PAPER_ENTRY_MAX_NOTIONAL_USD=25000`
+- `PAPER_ENTRY_UPSIZE_THRESHOLD_PCT=0.95`
+- `PAPER_ENTRY_LIMIT_BUFFER_BPS=100`
+- `MAX_TRADES_PER_DAY=10`
+- `MAX_ORDER_NOTIONAL_USD=25000`
+- `MAX_POSITION_NOTIONAL_USD=30000`
+
+The paper runner remains paper-only, requires limit orders, and still passes all entries through the risk engine. Same-day duplicate entries are not blindly repeated; if the current paper position is below the target threshold, the runner can submit one additive paper-only upsize order with a distinct client order ID.
 
 ## Local Setup
 

@@ -161,7 +161,7 @@ input:disabled {
 }
 
 .status-strip {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   padding: 22px 0 16px;
 }
 

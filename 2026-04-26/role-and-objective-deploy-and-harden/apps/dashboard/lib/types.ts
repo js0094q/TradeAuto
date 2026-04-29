@@ -55,7 +55,10 @@ export type PaperStrategyExecution = {
   runtime_gate_passed?: boolean;
   runtime_gate_blocks?: string[];
   market_open?: boolean;
+  bankroll_usd?: number;
+  max_notional_usd?: number;
   notional_usd?: number;
+  limit_buffer_bps?: number;
   order_type?: string;
   orders?: Array<{
     symbol?: string;
@@ -63,10 +66,15 @@ export type PaperStrategyExecution = {
     status?: string;
     submitted?: boolean;
     client_order_id?: string;
+    original_client_order_id?: string;
     risk_blocks?: string[];
     error?: string;
     limit_price?: number;
     qty?: number;
+    notional_usd?: number;
+    target_notional_usd?: number;
+    current_position_notional_usd?: number;
+    upsize_from_notional_usd?: number;
   }>;
 };
 

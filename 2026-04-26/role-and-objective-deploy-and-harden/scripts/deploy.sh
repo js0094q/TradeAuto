@@ -34,6 +34,20 @@ notify_telegram() {
   fi
 }
 
+wait_for_check() {
+  local name="$1"
+  shift
+  local attempt
+  for attempt in $(seq 1 30); do
+    if "$@" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  echo "deployment health check failed: ${name}" >&2
+  "$@" >/dev/null
+}
+
 rollback_on_failure() {
   echo "deployment failed; attempting rollback" >&2
   if [[ -x "${CURRENT_LINK}/scripts/rollback.sh" ]]; then
@@ -86,8 +100,8 @@ for service in "${SERVICES[@]}"; do
   sudo systemctl restart "${service}"
 done
 
-curl -fsS "https://${DOMAIN}/health" >/dev/null
-curl -fsS -H "X-Admin-Token: ${ADMIN_TOKEN:-}" "http://127.0.0.1:${PORT:-8000}/ready" >/dev/null
+wait_for_check public-health curl -fsS "https://${DOMAIN}/health"
+wait_for_check local-ready curl -fsS -H "X-Admin-Token: ${ADMIN_TOKEN:-}" "http://127.0.0.1:${PORT:-8000}/ready"
 notify_telegram "Trading deployment succeeded: ${TIMESTAMP}"
 trap - ERR
 echo "deployment complete: ${RELEASE_DIR}"

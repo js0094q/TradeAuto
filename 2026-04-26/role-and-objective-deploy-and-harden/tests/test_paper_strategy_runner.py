@@ -115,6 +115,111 @@ class PaperStrategyRunnerTests(unittest.TestCase):
             self.assertNotIn("ALPACA_SECRET_KEY", first_env)
             self.assertTrue(Path(tmpdir, "state", "paper_entry_orders.json").exists())
 
+    def test_run_once_sizes_entries_from_paper_bankroll_when_fixed_notional_is_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, "state").mkdir()
+            Path(tmpdir, "state", "kill_switch.enabled").write_text("disabled\n", encoding="utf-8")
+            captured: list[list[str]] = []
+            paper_settings = settings(
+                tmpdir,
+                overrides={
+                    "PAPER_ENTRY_EXECUTION_ENABLED": "true",
+                    "PAPER_ENTRY_BANKROLL_USD": "100000",
+                    "PAPER_ENTRY_MAX_NOTIONAL_USD": "25000",
+                    "PAPER_ENTRY_ORDER_TYPE": "limit",
+                    "MAX_ORDER_NOTIONAL_USD": "25000",
+                    "MAX_POSITION_NOTIONAL_USD": "30000",
+                    "MAX_DAILY_LOSS_USD": "2500",
+                    "MAX_TOTAL_DRAWDOWN_USD": "10000",
+                },
+            )
+
+            def fake_run(command: list[str], **_kwargs: object) -> object:
+                captured.append(command)
+                return SimpleNamespace(returncode=0, stdout='{"id":"paper-order"}', stderr="")
+
+            with (
+                patch.object(paper_strategy_runner, "_provider", return_value=FakeProvider()),
+                patch.object(paper_strategy_runner, "_market_clock", return_value={"is_open": True}),
+                patch.object(paper_strategy_runner.subprocess, "run", side_effect=fake_run),
+            ):
+                payload = paper_strategy_runner.run_once(paper_settings)
+
+            execution = payload["paper_execution"]
+            self.assertEqual(execution["bankroll_usd"], 100000.0)
+            self.assertEqual(execution["max_notional_usd"], 25000.0)
+            submitted = [order for order in execution["orders"] if order["submitted"]]
+            self.assertTrue(submitted)
+            self.assertTrue(all(order["notional_usd"] == 25000.0 for order in submitted))
+            qty_index = captured[0].index("--qty") + 1
+            self.assertGreater(float(captured[0][qty_index]), 100.0)
+
+    def test_duplicate_entry_can_be_upsized_when_existing_paper_position_is_tiny(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, "state").mkdir()
+            paper_settings = settings(
+                tmpdir,
+                overrides={
+                    "PAPER_ENTRY_EXECUTION_ENABLED": "true",
+                    "PAPER_ENTRY_BANKROLL_USD": "100000",
+                    "PAPER_ENTRY_MAX_NOTIONAL_USD": "25000",
+                    "PAPER_ENTRY_ORDER_TYPE": "limit",
+                    "MAX_TRADES_PER_DAY": "10",
+                    "MAX_ORDER_NOTIONAL_USD": "25000",
+                    "MAX_POSITION_NOTIONAL_USD": "30000",
+                    "MAX_DAILY_LOSS_USD": "2500",
+                    "MAX_TOTAL_DRAWDOWN_USD": "10000",
+                },
+            )
+            intent = OrderIntent(
+                strategy_name="equity_etf_trend_regime_v1",
+                symbol="SPY",
+                side="buy",
+                target_weight=0.25,
+                quantity=None,
+                notional=None,
+                reason="test",
+                mode="paper",
+            )
+            today = paper_strategy_runner.date.today().isoformat().replace("-", "")
+            original_id = paper_strategy_runner._client_order_id(intent.strategy_name, intent.symbol, today)
+            Path(tmpdir, "state", "paper_entry_orders.json").write_text(
+                f'{{"client_order_ids":["{original_id}"]}}\n',
+                encoding="utf-8",
+            )
+            captured: list[list[str]] = []
+
+            def fake_run(command: list[str], **_kwargs: object) -> object:
+                if command[:3] == ["alpaca", "position", "list"]:
+                    return SimpleNamespace(
+                        returncode=0,
+                        stdout='[{"symbol":"SPY","market_value":"1.00"}]',
+                        stderr="",
+                    )
+                captured.append(command)
+                return SimpleNamespace(returncode=0, stdout='{"id":"paper-upsize"}', stderr="")
+
+            with patch.object(paper_strategy_runner.subprocess, "run", side_effect=fake_run):
+                execution = paper_strategy_runner._execute_paper_entries(
+                    paper_settings,
+                    shared=Path(tmpdir),
+                    selected_orders=(intent,),
+                    quotes={"SPY": {"ask": 100.0}},
+                    market_clock={"is_open": True},
+                )
+
+            self.assertEqual(execution["status"], "complete")
+            self.assertEqual(len(captured), 1)
+            order = execution["orders"][0]
+            self.assertEqual(order["status"], "submitted")
+            self.assertEqual(order["current_position_notional_usd"], 1.0)
+            self.assertEqual(order["notional_usd"], 24999.0)
+            self.assertEqual(order["target_notional_usd"], 25000.0)
+            client_order_id = captured[0][captured[0].index("--client-order-id") + 1]
+            self.assertIn("up25000", client_order_id)
+            qty = float(captured[0][captured[0].index("--qty") + 1])
+            self.assertGreater(qty, 240.0)
+
     def test_enabled_paper_entries_wait_when_market_is_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             Path(tmpdir, "state").mkdir()

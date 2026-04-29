@@ -25,7 +25,7 @@ Required environment variables:
 TRADING_API_BASE_URL=https://45.142.140.188.sslip.io
 TRADING_API_HOST_HEADER=45.142.140.188.sslip.io
 TRADING_API_TLS_SERVERNAME=45.142.140.188.sslip.io
-TRADING_API_ADMIN_TOKEN=<value from /opt/trading-system/shared/.env.live ADMIN_TOKEN>
+TRADING_API_ADMIN_TOKEN=<ADMIN_TOKEN from the active /opt/trading-system/shared/.env.runtime target>
 TRADING_API_BASIC_AUTH=<operator>:<value from /opt/trading-system/shared/config/nginx_operator_password>
 DASHBOARD_ACCESS_TOKEN=<operator login token>
 DASHBOARD_SESSION_SECRET=<random cookie secret>
@@ -45,6 +45,12 @@ TRADING_API_TLS_SERVERNAME=45.142.140.188.sslip.io
 This keeps the browser proxy-only while the server route connects to the VPS through a renewable Let’s Encrypt certificate.
 
 The Vercel app also exposes public `/health`, which proxies the VPS health endpoint for uptime checks. Protected backend routes still require a dashboard session plus the server-side backend credentials.
+
+After deployment, run the dashboard smoke check from the repo root:
+
+```bash
+DASHBOARD_URL=https://www.jlsprojects.com scripts/dashboard_proxy_smoke.sh
+```
 
 ## Local Development
 

@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+!.env.paper.example
 !.env.live.example
 !.env.test.example
 .sshpw

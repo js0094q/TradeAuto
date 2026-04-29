@@ -324,7 +324,9 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
           <span>Runtime gate {paperExecution?.runtime_gate_passed ? "passed" : "not passed"}</span>
           <span>Market {paperExecution?.market_open ? "open" : "closed or unknown"}</span>
           <span>Order type {paperExecution?.order_type || "unknown"}</span>
-          <span>Notional {formatCurrency(paperExecution?.notional_usd)}</span>
+          <span>Bankroll {formatCurrency(paperExecution?.bankroll_usd)}</span>
+          <span>Max order {formatCurrency(paperExecution?.max_notional_usd || paperExecution?.notional_usd)}</span>
+          <span>Limit buffer {formatBps(paperExecution?.limit_buffer_bps)}</span>
         </div>
         <div className="table-shell strategy-table">
           <table>
@@ -358,6 +360,36 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
             </tbody>
           </table>
         </div>
+        {paperExecution?.orders?.length ? (
+          <div className="table-shell strategy-table execution-orders">
+            <table>
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Status</th>
+                  <th>Target</th>
+                  <th>Current</th>
+                  <th>Order</th>
+                  <th>Qty</th>
+                  <th>Risk</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paperExecution.orders.map((order) => (
+                  <tr key={`${order.client_order_id || order.symbol}-${order.status}`}>
+                    <td>{order.symbol || "unknown"}</td>
+                    <td>{formatName(order.status || "unknown")}</td>
+                    <td>{formatCurrency(order.target_notional_usd)}</td>
+                    <td>{formatCurrency(order.current_position_notional_usd)}</td>
+                    <td>{formatCurrency(order.notional_usd)}</td>
+                    <td>{formatQuantity(order.qty)}</td>
+                    <td>{formatBlocks(order.risk_blocks)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
       </section>
 
       <section className="metrics-grid" aria-label="Runtime metrics">
@@ -550,6 +582,14 @@ function formatCurrency(value: number | undefined) {
   return value === undefined ? "unknown" : `$${value.toFixed(2)}`;
 }
 
+function formatBps(value: number | undefined) {
+  return value === undefined ? "unknown" : `${value.toFixed(0)} bps`;
+}
+
+function formatQuantity(value: number | undefined) {
+  return value === undefined ? "unknown" : value.toFixed(4);
+}
+
 function formatRunning(value: boolean | undefined) {
   if (value === undefined) {
     return "unknown";
@@ -613,7 +653,10 @@ function formatOrders(strategy: PaperStrategySnapshot) {
   }
   return orders
     .slice(0, 3)
-    .map((order) => `${order.side.toUpperCase()} ${order.symbol}${order.risk_approved ? " approved" : ""}`)
+    .map((order) => {
+      const notional = order.notional === null ? undefined : order.notional;
+      return `${order.side.toUpperCase()} ${order.symbol}${notional ? ` ${formatCurrency(notional)}` : ""}${order.risk_approved ? " approved" : ""}`;
+    })
     .join(", ");
 }
 

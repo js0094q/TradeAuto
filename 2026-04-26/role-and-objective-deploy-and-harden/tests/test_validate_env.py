@@ -86,6 +86,28 @@ class ValidateEnvTests(unittest.TestCase):
             result = validate_settings(build_settings(values), mode="live")
         self.assertTrue(result.ok, result.errors)
 
+    def test_paper_accepts_evaluation_grade_sizing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            kill_file = Path(directory) / "kill_switch.enabled"
+            kill_file.write_text("disabled\n", encoding="utf-8")
+            values = dict(
+                BASE_ENV,
+                APP_ENV="paper",
+                TRADING_MODE="paper",
+                LIVE_TRADING_ENABLED="false",
+                ALPACA_BASE_URL="https://paper-api.alpaca.markets",
+                ALPACA_CLI_PROFILE="paper",
+                KILL_SWITCH_FILE=str(kill_file),
+                MAX_TRADES_PER_DAY="10",
+                MAX_OPEN_POSITIONS="6",
+                MAX_ORDER_NOTIONAL_USD="25000",
+                MAX_POSITION_NOTIONAL_USD="30000",
+                MAX_DAILY_LOSS_USD="2500",
+                MAX_TOTAL_DRAWDOWN_USD="10000",
+            )
+            result = validate_settings(build_settings(values), mode="paper")
+        self.assertTrue(result.ok, result.errors)
+
 
 if __name__ == "__main__":
     unittest.main()

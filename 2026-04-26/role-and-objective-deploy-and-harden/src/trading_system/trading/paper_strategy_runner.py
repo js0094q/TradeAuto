@@ -25,6 +25,10 @@ from trading_system.trading.risk import AccountState, ExecutionGateState, Market
 
 
 LOGGER = logging.getLogger("trading_system.trading.paper_strategy_runner")
+DEFAULT_PAPER_ENTRY_BANKROLL_USD = 100_000.0
+DEFAULT_PAPER_ENTRY_MAX_NOTIONAL_USD = 25_000.0
+DEFAULT_PAPER_ENTRY_UPSIZE_THRESHOLD_PCT = 0.95
+DEFAULT_PAPER_ENTRY_LIMIT_BUFFER_BPS = 10.0
 
 
 def _shared_dir(settings: Settings) -> Path:
@@ -58,6 +62,47 @@ def _paper_cli_env(settings: Settings) -> dict[str, str]:
     if settings.raw.get("ALPACA_CONFIG_DIR"):
         env["ALPACA_CONFIG_DIR"] = str(settings.raw["ALPACA_CONFIG_DIR"])
     return env
+
+
+def _float_or_none(value: object) -> float | None:
+    try:
+        parsed = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return parsed
+
+
+def _paper_position_market_values(settings: Settings) -> tuple[dict[str, float], str | None]:
+    result = subprocess.run(
+        ["alpaca", "position", "list", "--quiet"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=_paper_cli_env(settings),
+    )
+    if result.returncode != 0:
+        return {}, (result.stderr or result.stdout).strip()[:500] or "alpaca position list failed"
+    try:
+        payload = json.loads(result.stdout or "[]")
+    except json.JSONDecodeError as exc:
+        return {}, f"invalid alpaca position payload: {exc}"
+    if not isinstance(payload, list):
+        return {}, "unexpected alpaca position payload"
+
+    positions: dict[str, float] = {}
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        symbol = str(item.get("symbol") or "").upper()
+        if not symbol:
+            continue
+        market_value = _float_or_none(item.get("market_value"))
+        if market_value is None:
+            market_value = _float_or_none(item.get("cost_basis"))
+        if market_value is not None:
+            positions[symbol] = abs(market_value)
+    return positions, None
 
 
 def _paper_runtime_gate(settings: Settings) -> tuple[bool, tuple[str, ...]]:
@@ -116,7 +161,7 @@ def _write_order_state(shared: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
 
 
-def _limit_price_for(symbol: str, quotes: dict[str, object], fallback: float | None = None) -> float | None:
+def _limit_price_for(symbol: str, quotes: dict[str, object], *, buffer_bps: float, fallback: float | None = None) -> float | None:
     quote = quotes.get(symbol)
     ask = getattr(quote, "ask", None)
     if ask is None and isinstance(quote, dict):
@@ -127,13 +172,14 @@ def _limit_price_for(symbol: str, quotes: dict[str, object], fallback: float | N
         value = float(fallback or 0.0)
     if value <= 0.0:
         return None
-    return round(value * 1.001, 2)
+    return round(value * (1.0 + max(buffer_bps, 0.0) / 10_000.0), 2)
 
 
-def _client_order_id(strategy_name: str, symbol: str, trade_date: str) -> str:
+def _client_order_id(strategy_name: str, symbol: str, trade_date: str, *, suffix: str = "entry") -> str:
     strategy_prefixes = {"equity_etf_trend_regime_v1": "etrv1"}
     prefix = strategy_prefixes.get(strategy_name, strategy_name.replace("_", "-")[:12])
-    return f"{prefix}-{trade_date}-{symbol}-paper-entry"
+    clean_suffix = suffix.replace("_", "-")[:12]
+    return f"{prefix}-{trade_date}-{symbol}-paper-{clean_suffix}"[:48]
 
 
 def _asset_class_for_symbol(symbol: str) -> str:
@@ -143,6 +189,53 @@ def _asset_class_for_symbol(symbol: str) -> str:
         if quote in {"USD", "USDT", "USDC"}:
             return "crypto"
     return "equity"
+
+
+def _positive_float(value: str | None, *, default: float) -> float:
+    try:
+        parsed = float(value) if value not in (None, "") else default
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0.0 else default
+
+
+def _paper_entry_bankroll(settings: Settings) -> float:
+    return _positive_float(
+        settings.raw.get("PAPER_ENTRY_BANKROLL_USD"),
+        default=DEFAULT_PAPER_ENTRY_BANKROLL_USD,
+    )
+
+
+def _paper_entry_max_notional(settings: Settings) -> float:
+    configured = settings.raw.get("PAPER_ENTRY_MAX_NOTIONAL_USD")
+    if configured not in (None, ""):
+        return _positive_float(configured, default=DEFAULT_PAPER_ENTRY_MAX_NOTIONAL_USD)
+    if settings.risk.max_order_notional_usd and settings.risk.max_order_notional_usd > 0:
+        return settings.risk.max_order_notional_usd
+    return DEFAULT_PAPER_ENTRY_MAX_NOTIONAL_USD
+
+
+def _paper_entry_upsize_threshold(settings: Settings) -> float:
+    threshold = _positive_float(
+        settings.raw.get("PAPER_ENTRY_UPSIZE_THRESHOLD_PCT"),
+        default=DEFAULT_PAPER_ENTRY_UPSIZE_THRESHOLD_PCT,
+    )
+    return min(max(threshold, 0.0), 1.0)
+
+
+def _paper_entry_limit_buffer_bps(settings: Settings) -> float:
+    return _positive_float(
+        settings.raw.get("PAPER_ENTRY_LIMIT_BUFFER_BPS"),
+        default=DEFAULT_PAPER_ENTRY_LIMIT_BUFFER_BPS,
+    )
+
+
+def _paper_entry_notional(settings: Settings, intent: OrderIntent, *, bankroll: float, max_notional: float) -> float:
+    fixed_notional = settings.raw.get("PAPER_ENTRY_NOTIONAL_USD")
+    if fixed_notional not in (None, ""):
+        return min(_positive_float(fixed_notional, default=max_notional), max_notional)
+    target_notional = intent.notional if intent.notional and intent.notional > 0.0 else bankroll * max(intent.target_weight, 0.0)
+    return min(max(target_notional, 0.0), max_notional)
 
 
 def _execute_paper_entries(
@@ -156,16 +249,21 @@ def _execute_paper_entries(
     enabled = parse_bool(settings.raw.get("PAPER_ENTRY_EXECUTION_ENABLED", "false"))
     gate_ok, gate_blocks = _paper_runtime_gate(settings)
     market_open = bool(market_clock.get("is_open", False))
-    notional = float(settings.raw.get("PAPER_ENTRY_NOTIONAL_USD", "1.00") or 1.0)
+    bankroll = _paper_entry_bankroll(settings)
+    max_notional = _paper_entry_max_notional(settings)
     order_type = str(settings.raw.get("PAPER_ENTRY_ORDER_TYPE", "limit")).strip().lower()
+    limit_buffer_bps = _paper_entry_limit_buffer_bps(settings)
     payload: dict[str, Any] = {
         "enabled": enabled,
         "runtime_gate_passed": gate_ok,
         "runtime_gate_blocks": list(gate_blocks),
         "market_open": market_open,
         "market_clock": market_clock,
-        "notional_usd": notional,
+        "bankroll_usd": bankroll,
+        "max_notional_usd": max_notional,
+        "notional_usd": max_notional,
         "order_type": order_type,
+        "limit_buffer_bps": limit_buffer_bps,
         "orders": [],
     }
     if not enabled:
@@ -185,11 +283,15 @@ def _execute_paper_entries(
     state = _load_order_state(shared)
     seen = set(str(item) for item in state.get("client_order_ids", []))
     submitted_ids: list[str] = list(seen)
+    order_metadata = state.get("orders") if isinstance(state.get("orders"), dict) else {}
+    position_values: dict[str, float] | None = None
+    position_lookup_error: str | None = None
     engine = RiskEngine(settings.risk)
     env = _paper_cli_env(settings)
     today = date.today().isoformat().replace("-", "")
     today_key = f"-{today}-"
     trades_today = sum(1 for order_id in seen if today_key in order_id)
+    upsize_threshold = _paper_entry_upsize_threshold(settings)
 
     for intent in selected_orders:
         if intent.side != "buy" or intent.mode != "paper":
@@ -202,17 +304,55 @@ def _execute_paper_entries(
             "client_order_id": client_order_id,
             "submitted": False,
         }
+        target_notional = _paper_entry_notional(settings, intent, bankroll=bankroll, max_notional=max_notional)
+        notional = target_notional
+        entry["target_notional_usd"] = round(target_notional, 2)
         if not market_open and asset_class != "crypto":
             entry["status"] = "blocked_market_closed"
             payload["orders"].append(entry)
             continue
-        if client_order_id in seen:
-            entry["status"] = "already_submitted"
-            payload["orders"].append(entry)
-            continue
-        limit_price = _limit_price_for(intent.symbol, quotes)
+        limit_price = _limit_price_for(intent.symbol, quotes, buffer_bps=limit_buffer_bps)
         if limit_price is None:
             entry["status"] = "blocked_missing_quote"
+            payload["orders"].append(entry)
+            continue
+        entry["limit_price"] = limit_price
+        if client_order_id in seen:
+            stored_entry = order_metadata.get(client_order_id) if isinstance(order_metadata, dict) else None
+            stored_notional = _float_or_none(stored_entry.get("notional_usd")) if isinstance(stored_entry, dict) else None
+            if position_values is None:
+                position_values, position_lookup_error = _paper_position_market_values(settings)
+            current_notional = position_values.get(intent.symbol.upper()) if position_values is not None else None
+            if current_notional is not None:
+                entry["current_position_notional_usd"] = round(current_notional, 2)
+            if position_lookup_error:
+                entry["position_lookup_error"] = position_lookup_error
+            observed_notional = current_notional if current_notional is not None else stored_notional
+            if observed_notional is None:
+                entry["status"] = "already_submitted_position_unknown"
+                payload["orders"].append(entry)
+                continue
+            if observed_notional >= target_notional * upsize_threshold:
+                entry["notional_usd"] = round(observed_notional, 2)
+                entry["status"] = "already_submitted"
+                payload["orders"].append(entry)
+                continue
+            upsize_suffix = f"up{int(round(target_notional))}"
+            upsize_client_order_id = _client_order_id(intent.strategy_name, intent.symbol, today, suffix=upsize_suffix)
+            if upsize_client_order_id in seen:
+                entry["client_order_id"] = upsize_client_order_id
+                entry["original_client_order_id"] = client_order_id
+                entry["status"] = "upsize_already_submitted"
+                entry["notional_usd"] = round(max(target_notional - observed_notional, 0.0), 2)
+                payload["orders"].append(entry)
+                continue
+            entry["original_client_order_id"] = client_order_id
+            entry["client_order_id"] = upsize_client_order_id
+            client_order_id = upsize_client_order_id
+            notional = min(max(target_notional - observed_notional, 0.0), max_notional)
+            entry["upsize_from_notional_usd"] = round(observed_notional, 2)
+        if notional <= 0.0:
+            entry["status"] = "blocked_non_positive_notional"
             payload["orders"].append(entry)
             continue
         quantity = max(notional / limit_price, 0.0)
@@ -258,14 +398,21 @@ def _execute_paper_entries(
             "--quiet",
         ]
         result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=30, env=env)
-        entry["limit_price"] = limit_price
         entry["qty"] = round(quantity, 6)
+        entry["notional_usd"] = round(notional, 2)
         entry["returncode"] = result.returncode
         if result.returncode == 0:
             entry["submitted"] = True
             entry["status"] = "submitted"
             submitted_ids.append(client_order_id)
             trades_today += 1
+            if isinstance(order_metadata, dict):
+                order_metadata[client_order_id] = {
+                    "symbol": intent.symbol,
+                    "notional_usd": round(notional, 2),
+                    "target_notional_usd": round(target_notional, 2),
+                    "submitted_at": datetime.now(UTC).isoformat(),
+                }
         else:
             entry["status"] = "submit_failed"
             entry["error"] = (result.stderr or result.stdout).strip()[:500]
@@ -276,6 +423,8 @@ def _execute_paper_entries(
         return payload
 
     state["client_order_ids"] = sorted(set(submitted_ids))
+    if isinstance(order_metadata, dict):
+        state["orders"] = order_metadata
     state["updated_at"] = datetime.now(UTC).isoformat()
     _write_order_state(shared, state)
     payload["status"] = "complete"
@@ -322,6 +471,7 @@ def run_once(settings: Settings) -> dict[str, Any]:
         quotes_by_symbol=quotes,
         mode="paper",
         kill_switch_enabled=kill_switch_enabled,
+        portfolio_value=_paper_entry_bankroll(settings),
     )
     overlay_rebalance = overlay_strategy.rebalance(
         bars_by_symbol=equity_bars,
