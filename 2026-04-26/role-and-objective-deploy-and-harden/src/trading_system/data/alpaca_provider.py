@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -46,15 +47,19 @@ class CliRunner:
     timeout_seconds: int = 30
 
     def run(self, args: list[str]) -> CliResult:
-        command = ["alpaca", *args]
+        command = ["alpaca"]
+        env = os.environ.copy()
         if self.profile:
+            env["ALPACA_PROFILE"] = self.profile
             command.extend(["--profile", self.profile])
+        command.extend(args)
         command.append("--quiet")
         completed = subprocess.run(
             command,
             check=False,
             capture_output=True,
             text=True,
+            env=env,
             timeout=self.timeout_seconds,
         )
         return CliResult(

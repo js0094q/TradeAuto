@@ -12,4 +12,4 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/alpaca_cli.sh"
 alpaca_cli_command
 
-"${ALPACA_CLI_COMMAND[@]}" orders cancel --all --profile "${PROFILE}"
+ALPACA_PROFILE="${PROFILE}" "${ALPACA_CLI_COMMAND[@]}" --profile "${PROFILE}" orders cancel --all

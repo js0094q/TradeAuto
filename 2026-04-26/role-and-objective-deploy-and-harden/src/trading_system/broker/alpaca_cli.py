@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass
 
@@ -18,14 +19,18 @@ class AlpacaCli:
     binary: str = "alpaca"
 
     def run(self, *args: str, timeout: int = 30) -> CliResult:
-        command = [self.binary, *args]
+        command = [self.binary]
+        env = os.environ.copy()
         if self.profile:
+            env["ALPACA_PROFILE"] = self.profile
             command.extend(["--profile", self.profile])
+        command.extend(args)
         completed = subprocess.run(
             command,
             check=False,
             capture_output=True,
             text=True,
+            env=env,
             timeout=timeout,
         )
         return CliResult(
@@ -37,4 +42,3 @@ class AlpacaCli:
 
     def doctor(self) -> CliResult:
         return self.run("doctor")
-

@@ -9,12 +9,20 @@ SOURCE_DIR="${SOURCE_DIR:-$(pwd)}"
 REPO_URL="${REPO_URL:-}"
 BRANCH="${BRANCH:-main}"
 MODE="${MODE:-live}"
-ENV_FILE="${ENV_FILE:-${SHARED_DIR}/.env.live}"
+if [[ -z "${ENV_FILE:-}" ]]; then
+  case "${MODE}" in
+    live) ENV_FILE="${SHARED_DIR}/.env.live" ;;
+    paper) ENV_FILE="${SHARED_DIR}/.env.paper" ;;
+    *) ENV_FILE="${SHARED_DIR}/.env.test" ;;
+  esac
+fi
 DOMAIN="${DOMAIN:-localhost}"
 TIMESTAMP="$(date -u +%Y%m%d%H%M%S)"
 RELEASE_DIR="${RELEASES_DIR}/${TIMESTAMP}"
 if [[ "${MODE}" == "live" ]]; then
   SERVICES=(trading-api.service trading-engine-live.service telegram-bot.service)
+elif [[ "${MODE}" == "paper" ]]; then
+  SERVICES=(trading-api.service trading-engine-paper.service telegram-bot.service)
 else
   SERVICES=(trading-api.service trading-engine-test.service telegram-bot.service)
 fi
@@ -39,6 +47,7 @@ mkdir -p "${RELEASES_DIR}" "${SHARED_DIR}/logs" "${SHARED_DIR}/state" "${SHARED_
 if [[ ! -f "${SHARED_DIR}/state/kill_switch.enabled" ]]; then
   echo "enabled" > "${SHARED_DIR}/state/kill_switch.enabled"
 fi
+ln -sfn "$(basename "${ENV_FILE}")" "${SHARED_DIR}/.env.runtime"
 
 if [[ -n "${REPO_URL}" ]]; then
   git clone --branch "${BRANCH}" --depth 1 "${REPO_URL}" "${RELEASE_DIR}"

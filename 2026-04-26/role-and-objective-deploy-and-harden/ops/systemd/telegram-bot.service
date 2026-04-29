@@ -7,8 +7,8 @@ Wants=trading-api.service
 User=trader
 Group=trader
 WorkingDirectory=/opt/trading-system/app
-EnvironmentFile=/opt/trading-system/shared/.env.live
-ExecStart=/opt/trading-system/app/.venv/bin/python -m trading_system.telegram.bot --env-file /opt/trading-system/shared/.env.live
+EnvironmentFile=/opt/trading-system/shared/.env.runtime
+ExecStart=/opt/trading-system/app/.venv/bin/python -m trading_system.telegram.bot --env-file /opt/trading-system/shared/.env.runtime
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
@@ -21,4 +21,3 @@ StandardError=append:/opt/trading-system/shared/logs/telegram.err.log
 
 [Install]
 WantedBy=multi-user.target
-

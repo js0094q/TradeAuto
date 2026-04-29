@@ -51,12 +51,14 @@ def readiness_checks(settings: Settings, *, external: bool = True) -> list[Check
 
     checks.append(Check("risk_engine_loaded", True, "ok"))
 
-    if external:
+    if external and settings.is_live:
         try:
             AlpacaBroker(settings).validate_connectivity()
             checks.append(Check("alpaca_sdk_connectivity", True, "ok"))
         except Exception as exc:
             checks.append(Check("alpaca_sdk_connectivity", False, str(exc)))
+    elif external and settings.is_paper and settings.alpaca_cli_enabled:
+        checks.append(Check("alpaca_sdk_connectivity", True, "skipped for paper CLI mode"))
     else:
         checks.append(Check("alpaca_sdk_connectivity", True, "skipped"))
 
