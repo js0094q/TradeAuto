@@ -238,6 +238,20 @@ def _paper_entry_notional(settings: Settings, intent: OrderIntent, *, bankroll: 
     return min(max(target_notional, 0.0), max_notional)
 
 
+def _strategy_mode(settings: Settings, key: str, *, default: str) -> str:
+    value = str(settings.raw.get(key, default)).strip().lower()
+    if value in {"paper", "paper_shadow", "shadow"}:
+        return value
+    return default
+
+
+def _strategy_enabled(settings: Settings, key: str, *, default: bool) -> bool:
+    raw = settings.raw.get(key)
+    if raw is None:
+        return default
+    return parse_bool(raw)
+
+
 def _execute_paper_entries(
     settings: Settings,
     *,
@@ -457,6 +471,21 @@ def run_once(settings: Settings) -> dict[str, Any]:
     default_strategy = EquityEtfTrendRegimeV1()
     overlay_strategy = CrossMarketHighBetaConfirmationV1()
     reversion_strategy = LiquidEtfMeanReversionV1()
+    default_strategy.config = replace(
+        default_strategy.config,
+        enabled=_strategy_enabled(settings, "PAPER_STRATEGY_PRIMARY_ENABLED", default=default_strategy.config.enabled),
+    )
+    overlay_strategy.config = replace(
+        overlay_strategy.config,
+        enabled=_strategy_enabled(settings, "PAPER_STRATEGY_OVERLAY_ENABLED", default=overlay_strategy.config.enabled),
+    )
+    reversion_strategy.config = replace(
+        reversion_strategy.config,
+        enabled=_strategy_enabled(settings, "PAPER_STRATEGY_REVERSION_ENABLED", default=reversion_strategy.config.enabled),
+    )
+    primary_mode = _strategy_mode(settings, "PAPER_STRATEGY_PRIMARY_MODE", default="paper")
+    overlay_mode = _strategy_mode(settings, "PAPER_STRATEGY_OVERLAY_MODE", default="paper_shadow")
+    reversion_mode = _strategy_mode(settings, "PAPER_STRATEGY_REVERSION_MODE", default="paper_shadow")
     universe = tuple(sorted(set(default_strategy.config.universe + overlay_strategy.config.universe + reversion_strategy.config.universe)))
 
     start = _lookback_start()
@@ -469,7 +498,7 @@ def run_once(settings: Settings) -> dict[str, Any]:
     default_rebalance = default_strategy.rebalance(
         bars_by_symbol=equity_bars,
         quotes_by_symbol=quotes,
-        mode="paper",
+        mode=primary_mode,
         kill_switch_enabled=kill_switch_enabled,
         portfolio_value=_paper_entry_bankroll(settings),
     )
@@ -477,13 +506,13 @@ def run_once(settings: Settings) -> dict[str, Any]:
         bars_by_symbol=equity_bars,
         crypto_bars_by_symbol=crypto_bars,
         quotes_by_symbol=quotes,
-        mode="paper_shadow",
+        mode=overlay_mode,
         kill_switch_enabled=kill_switch_enabled,
     )
     reversion_rebalance = reversion_strategy.rebalance(
         bars_by_symbol=equity_bars,
         quotes_by_symbol=quotes,
-        mode="paper_shadow",
+        mode=reversion_mode,
         kill_switch_enabled=kill_switch_enabled,
     )
     paper_execution = _execute_paper_entries(
