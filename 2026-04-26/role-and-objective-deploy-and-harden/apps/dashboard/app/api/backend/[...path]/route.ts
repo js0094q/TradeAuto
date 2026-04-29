@@ -1,7 +1,10 @@
+import { request as httpsRequest } from "node:https";
+
 import { NextResponse } from "next/server";
 
 import {
   getBackendBasicAuthHeader,
+  getBackendTransportOverrides,
   getDashboardConfig,
   requireBackendAdminToken,
 } from "@/lib/config";
@@ -65,7 +68,7 @@ async function proxyRequest(context: RouteContext, method: "GET" | "POST", reque
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
   try {
-    const upstream = await fetch(`${backendBaseUrl}/${path}`, {
+    const upstream = await fetchBackend(`${backendBaseUrl}/${path}`, {
       method,
       headers,
       cache: "no-store",
@@ -96,6 +99,89 @@ async function proxyRequest(context: RouteContext, method: "GET" | "POST", reque
   } finally {
     clearTimeout(timeout);
   }
+}
+
+type BackendResponse = {
+  ok: boolean;
+  status: number;
+  headers: {
+    get(name: string): string | null;
+  };
+  json(): Promise<unknown>;
+  text(): Promise<string>;
+};
+
+async function fetchBackend(
+  url: string,
+  init: {
+    method: "GET" | "POST";
+    headers: Headers;
+    cache: "no-store";
+    signal: AbortSignal;
+  },
+): Promise<BackendResponse> {
+  const { hostHeader, tlsServername } = getBackendTransportOverrides();
+  if (!hostHeader && !tlsServername) {
+    return fetch(url, init);
+  }
+
+  const parsed = new URL(url);
+  if (parsed.protocol !== "https:") {
+    throw new Error("Backend transport overrides require HTTPS");
+  }
+
+  const headers = Object.fromEntries(init.headers.entries());
+  if (hostHeader) {
+    headers.Host = hostHeader;
+  }
+
+  return new Promise((resolve, reject) => {
+    const request = httpsRequest(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port || 443,
+        path: `${parsed.pathname}${parsed.search}`,
+        method: init.method,
+        servername: tlsServername || hostHeader || parsed.hostname,
+        headers,
+        timeout: 8000,
+      },
+      (response) => {
+        let body = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => {
+          body += chunk;
+        });
+        response.on("end", () => {
+          resolve({
+            ok: Boolean(response.statusCode && response.statusCode >= 200 && response.statusCode < 300),
+            status: response.statusCode || 502,
+            headers: {
+              get(name: string) {
+                const value = response.headers[name.toLowerCase()];
+                return Array.isArray(value) ? value.join(", ") : value || null;
+              },
+            },
+            async json() {
+              return JSON.parse(body);
+            },
+            async text() {
+              return body;
+            },
+          });
+        });
+      },
+    );
+
+    init.signal.addEventListener("abort", () => {
+      request.destroy(new Error("Backend request timed out"));
+    });
+    request.on("timeout", () => {
+      request.destroy(new Error("Backend request timed out"));
+    });
+    request.on("error", reject);
+    request.end();
+  });
 }
 
 async function validateControlGate(path: string, request?: Request) {

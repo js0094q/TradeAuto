@@ -30,6 +30,13 @@ export function getBackendBasicAuthHeader(): string | null {
   return `Basic ${Buffer.from(credentials, "utf8").toString("base64")}`;
 }
 
+export function getBackendTransportOverrides() {
+  return {
+    hostHeader: process.env.TRADING_API_HOST_HEADER?.trim() || null,
+    tlsServername: process.env.TRADING_API_TLS_SERVERNAME?.trim() || null,
+  };
+}
+
 function normalizeBaseUrl(value: string): string {
   const parsed = new URL(value);
   if (process.env.NODE_ENV === "production" && parsed.protocol !== "https:") {

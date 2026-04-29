@@ -1,90 +1,43 @@
 from __future__ import annotations
 
-import tempfile
+import os
 import unittest
 from importlib.util import find_spec
-from pathlib import Path
 from unittest.mock import patch
 
-from trading_system.config import build_settings
 
-REQUESTS_AVAILABLE = find_spec("requests") is not None
-if REQUESTS_AVAILABLE:
-    from trading_system.telegram.bot import TelegramCommandHandler, get_updates, message_from_update
+TELEGRAM_DEPS_AVAILABLE = find_spec("httpx") is not None and find_spec("telegram") is not None
 
-
-def settings_values(kill_file: Path) -> dict[str, str]:
-    return {
-        "APP_ENV": "live",
-        "TRADING_MODE": "live",
-        "LIVE_TRADING_ENABLED": "true",
-        "HOST": "127.0.0.1",
-        "PORT": "8000",
-        "POSTGRES_URL": "postgresql://trader_app:secret@127.0.0.1:5432/trading_system",
-        "REDIS_URL": "redis://127.0.0.1:6379/0",
-        "ALPACA_API_KEY": "key",
-        "ALPACA_API_SECRET": "secret",
-        "ALPACA_BASE_URL": "https://api.alpaca.markets",
-        "ALPACA_DATA_FEED": "iex",
-        "TELEGRAM_BOT_TOKEN": "token",
-        "TELEGRAM_ALLOWED_CHAT_IDS": "1",
-        "TELEGRAM_ADMIN_CHAT_IDS": "1",
-        "JWT_SIGNING_KEY": "jwt",
-        "ADMIN_TOKEN": "admin",
-        "DASHBOARD_TOKEN": "dashboard",
-        "LOG_LEVEL": "INFO",
-        "KILL_SWITCH_FILE": str(kill_file),
-        "MAX_TRADES_PER_DAY": "3",
-        "MAX_OPEN_POSITIONS": "3",
-        "MAX_ORDER_NOTIONAL_USD": "25",
-        "MAX_POSITION_NOTIONAL_USD": "50",
-        "MAX_DAILY_LOSS_USD": "25",
-        "MAX_TOTAL_DRAWDOWN_USD": "100",
-        "MAX_ACCOUNT_RISK_PCT": "1.0",
-        "REQUIRE_LIMIT_ORDERS": "true",
-        "ALLOW_MARKET_ORDERS": "false",
-        "ALLOW_SHORT_SELLING": "false",
-        "ALLOW_OPTIONS_TRADING": "false",
-        "ALLOW_CRYPTO_TRADING": "false",
-        "HEALTH_CHECKS_ENABLED": "true",
-    }
+if TELEGRAM_DEPS_AVAILABLE:
+    from trading_system.telegram.bot import (
+        HEALTH_PATHS,
+        KILL_SWITCH_PATHS,
+        STATUS_PATHS,
+        _api_headers,
+        _format_payload,
+    )
 
 
-@unittest.skipUnless(REQUESTS_AVAILABLE, "requests is not installed")
+@unittest.skipUnless(TELEGRAM_DEPS_AVAILABLE, "telegram runtime dependencies are not installed")
 class TelegramBotTests(unittest.TestCase):
-    def test_message_from_update_handles_authorized_command(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            kill_file = Path(directory) / "kill_switch.enabled"
-            kill_file.write_text("enabled\n", encoding="utf-8")
-            handler = TelegramCommandHandler(build_settings(settings_values(kill_file)))
+    def test_bot_uses_existing_api_routes(self) -> None:
+        self.assertEqual(HEALTH_PATHS, ["/health"])
+        self.assertEqual(STATUS_PATHS, ["/ready", "/metrics", "/health"])
+        self.assertEqual(KILL_SWITCH_PATHS, ["/admin/kill"])
 
-            message = message_from_update(
-                handler,
-                {"update_id": 10, "message": {"chat": {"id": 1}, "text": "/health"}},
-            )
+    def test_api_headers_include_admin_token_aliases(self) -> None:
+        with patch.dict(os.environ, {"ADMIN_TOKEN": "secret"}, clear=True):
+            headers = _api_headers()
 
-        self.assertIsNotNone(message)
-        assert message is not None
-        self.assertEqual(message.chat_id, "1")
-        self.assertIn('"ok": true', message.text)
+        self.assertEqual(headers["X-Admin-Token"], "secret")
+        self.assertEqual(headers["X-Control-Token"], "secret")
+        self.assertEqual(headers["Authorization"], "Bearer secret")
 
-    def test_message_from_update_ignores_non_commands(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            kill_file = Path(directory) / "kill_switch.enabled"
-            kill_file.write_text("enabled\n", encoding="utf-8")
-            handler = TelegramCommandHandler(build_settings(settings_values(kill_file)))
+    def test_format_payload_truncates_long_responses(self) -> None:
+        text = _format_payload({"value": "x" * 4000})
 
-            message = message_from_update(
-                handler,
-                {"update_id": 10, "message": {"chat": {"id": 1}, "text": "hello"}},
-            )
-
-        self.assertIsNone(message)
-
-    def test_get_updates_rejects_invalid_result_shape(self) -> None:
-        with patch("trading_system.telegram.bot.telegram_api_request", return_value={"ok": True, "result": {}}):
-            with self.assertRaisesRegex(RuntimeError, "invalid result"):
-                get_updates("token", None, timeout_seconds=1)
+        self.assertIn("...[truncated]", text)
+        self.assertLess(len(text), 3600)
 
 
 if __name__ == "__main__":

@@ -1,165 +1,286 @@
 from __future__ import annotations
 
-import argparse
 import json
 import logging
-import signal
-import time
-from dataclasses import dataclass
+import os
 from typing import Any
 
-import requests
-
-from trading_system.config import Settings, load_settings
-from trading_system.health import health_payload, metrics_payload, readiness_payload
-from trading_system.kill_switch import KillSwitch
-
-
-@dataclass(frozen=True)
-class TelegramMessage:
-    chat_id: str
-    text: str
+import httpx
+from telegram import Update
+from telegram.constants import ParseMode
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 
-class TelegramAuthorizer:
-    def __init__(self, settings: Settings) -> None:
-        self.allowed = set(settings.telegram_allowed_chat_ids)
-        self.admins = set(settings.telegram_admin_chat_ids)
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
 
-    def is_allowed(self, chat_id: str) -> bool:
-        return chat_id in self.allowed or chat_id in self.admins
+logger = logging.getLogger("trading_system.telegram.bot")
 
-    def is_admin(self, chat_id: str) -> bool:
-        return chat_id in self.admins
+# Telegram request URLs contain the bot token. Keep transport libraries out of INFO logs.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("telegram").setLevel(logging.WARNING)
+logging.getLogger("telegram.ext").setLevel(logging.INFO)
 
-
-class TelegramCommandHandler:
-    def __init__(self, settings: Settings) -> None:
-        self.settings = settings
-        self.authorizer = TelegramAuthorizer(settings)
-
-    def handle(self, chat_id: str, command: str) -> TelegramMessage:
-        if not self.authorizer.is_allowed(chat_id):
-            return TelegramMessage(chat_id, "unauthorized")
-
-        command_name = command.split()[0].lower()
-        if command_name == "/status":
-            return TelegramMessage(chat_id, json.dumps(metrics_payload(self.settings), sort_keys=True))
-        if command_name == "/health":
-            return TelegramMessage(chat_id, json.dumps(health_payload(), sort_keys=True))
-        if command_name == "/ready":
-            return TelegramMessage(chat_id, json.dumps(readiness_payload(self.settings, external=False), sort_keys=True))
-        if command_name in {"/account", "/positions", "/orders", "/pnl", "/strategies", "/risk"}:
-            return TelegramMessage(chat_id, f"{command_name[1:]} report is available through protected API/CLI diagnostics")
-        if command_name == "/kill":
-            if not self.authorizer.is_admin(chat_id):
-                return TelegramMessage(chat_id, "admin required")
-            KillSwitch(self.settings.kill_switch_file).enable()
-            return TelegramMessage(chat_id, "kill switch enabled; new trading is blocked")
-        if command_name == "/resume":
-            if not self.authorizer.is_admin(chat_id):
-                return TelegramMessage(chat_id, "admin required")
-            ready = readiness_payload(self.settings, external=False)
-            if not ready["ok"]:
-                return TelegramMessage(chat_id, "resume blocked; readiness failed")
-            KillSwitch(self.settings.kill_switch_file).disable()
-            return TelegramMessage(chat_id, "kill switch disabled after readiness validation")
-        return TelegramMessage(chat_id, "unknown command")
+HEALTH_PATHS = ["/health"]
+STATUS_PATHS = ["/ready", "/metrics", "/health"]
+KILL_SWITCH_PATHS = ["/admin/kill"]
 
 
-def send_message(token: str, chat_id: str, text: str) -> None:
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    response = requests.post(url, json={"chat_id": chat_id, "text": text}, timeout=10)
-    response.raise_for_status()
+def _required_env(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise RuntimeError(f"{name} is required")
+    return value
 
 
-def telegram_api_request(token: str, method: str, payload: dict[str, Any], *, timeout: int = 10) -> dict[str, Any]:
-    url = f"https://api.telegram.org/bot{token}/{method}"
-    response = requests.post(url, json=payload, timeout=timeout)
-    response.raise_for_status()
-    body = response.json()
-    if not body.get("ok"):
-        raise RuntimeError(f"Telegram API {method} failed: {body.get('description', 'unknown error')}")
-    return body
+def _chat_ids(name: str, *, required: bool) -> set[int]:
+    raw = os.getenv(name, "").strip()
+    if required and not raw:
+        raise RuntimeError(f"{name} is required")
+
+    ids: set[int] = set()
+    for item in raw.split(","):
+        item = item.strip()
+        if item:
+            ids.add(int(item))
+
+    if required and not ids:
+        raise RuntimeError(f"{name} must contain at least one chat id")
+    return ids
 
 
-def get_updates(token: str, offset: int | None, *, timeout_seconds: int = 50) -> list[dict[str, Any]]:
-    payload: dict[str, Any] = {"timeout": timeout_seconds, "allowed_updates": ["message"]}
-    if offset is not None:
-        payload["offset"] = offset
-    body = telegram_api_request(token, "getUpdates", payload, timeout=timeout_seconds + 10)
-    result = body.get("result", [])
-    if not isinstance(result, list):
-        raise RuntimeError("Telegram API getUpdates returned an invalid result")
-    return result
+def _allowed_chat_ids() -> set[int]:
+    return _chat_ids("TELEGRAM_ALLOWED_CHAT_IDS", required=True)
 
 
-def message_from_update(handler: TelegramCommandHandler, update: dict[str, Any]) -> TelegramMessage | None:
-    raw_message = update.get("message")
-    if not isinstance(raw_message, dict):
-        return None
-    raw_chat = raw_message.get("chat")
-    text = raw_message.get("text")
-    if not isinstance(raw_chat, dict) or not isinstance(text, str) or not text.startswith("/"):
-        return None
-    chat_id = raw_chat.get("id")
-    if chat_id is None:
-        return None
-    return handler.handle(str(chat_id), text)
+def _admin_chat_ids() -> set[int]:
+    return _chat_ids("TELEGRAM_ADMIN_CHAT_IDS", required=False)
 
 
-def run_long_polling(settings: Settings) -> int:
-    if not settings.telegram_bot_token:
-        logging.error("TELEGRAM_BOT_TOKEN is required")
-        return 2
-
-    handler = TelegramCommandHandler(settings)
-    running = True
-    offset: int | None = None
-
-    def stop(_signum: int, _frame: object) -> None:
-        nonlocal running
-        running = False
-
-    signal.signal(signal.SIGINT, stop)
-    signal.signal(signal.SIGTERM, stop)
-    telegram_api_request(settings.telegram_bot_token, "deleteWebhook", {"drop_pending_updates": True})
-    logging.info("telegram long polling started")
-
-    while running:
-        try:
-            for update in get_updates(settings.telegram_bot_token, offset):
-                update_id = update.get("update_id")
-                if isinstance(update_id, int):
-                    offset = update_id + 1
-                message = message_from_update(handler, update)
-                if message is not None:
-                    send_message(settings.telegram_bot_token, message.chat_id, message.text)
-        except requests.RequestException as exc:
-            logging.warning("telegram request failed: %s", exc)
-            time.sleep(5)
-
-    logging.info("telegram long polling stopped")
-    return 0
+def _api_base_url() -> str:
+    return (
+        os.getenv("TRADING_API_BASE_URL")
+        or os.getenv("CONTROL_API_BASE_URL")
+        or os.getenv("API_BASE_URL")
+        or "http://127.0.0.1:8000"
+    ).rstrip("/")
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--env-file")
-    parser.add_argument("--once-command")
-    parser.add_argument("--once-chat-id")
-    args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    settings = load_settings(args.env_file)
-    handler = TelegramCommandHandler(settings)
+def _api_headers() -> dict[str, str]:
+    token = (
+        os.getenv("TRADING_SYSTEM_CONTROL_PLANE_TOKEN")
+        or os.getenv("CONTROL_API_TOKEN")
+        or os.getenv("ADMIN_TOKEN")
+        or ""
+    ).strip()
 
-    if args.once_command and args.once_chat_id:
-        message = handler.handle(args.once_chat_id, args.once_command)
-        print(message.text)
-        return 0
+    headers: dict[str, str] = {}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+        headers["X-Admin-Token"] = token
+        headers["X-Control-Token"] = token
+    return headers
 
-    return run_long_polling(settings)
+
+def _format_payload(payload: Any) -> str:
+    if isinstance(payload, str):
+        text = payload
+    else:
+        text = json.dumps(payload, indent=2, sort_keys=True, default=str)
+
+    if len(text) > 3500:
+        text = text[:3500] + "\n...[truncated]"
+
+    return f"```json\n{text}\n```"
+
+
+async def _api_get(paths: list[str]) -> tuple[str, Any]:
+    base = _api_base_url()
+    headers = _api_headers()
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        last_error: Any = None
+
+        for path in paths:
+            url = f"{base}{path}"
+            try:
+                response = await client.get(url, headers=headers)
+                content_type = response.headers.get("content-type", "")
+                body: Any = response.json() if "application/json" in content_type else response.text
+
+                if response.status_code < 400:
+                    return path, body
+
+                last_error = {
+                    "path": path,
+                    "status_code": response.status_code,
+                    "body": body,
+                }
+            except Exception as exc:
+                last_error = {"path": path, "error": str(exc)}
+
+    return "none", {"error": "all candidate API paths failed", "last_error": last_error}
+
+
+async def _api_post(paths: list[str], payload: dict[str, Any] | None = None) -> tuple[str, Any]:
+    base = _api_base_url()
+    headers = _api_headers()
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        last_error: Any = None
+
+        for path in paths:
+            url = f"{base}{path}"
+            try:
+                response = await client.post(url, headers=headers, json=payload or {})
+                content_type = response.headers.get("content-type", "")
+                body: Any = response.json() if "application/json" in content_type else response.text
+
+                if response.status_code < 400:
+                    return path, body
+
+                last_error = {
+                    "path": path,
+                    "status_code": response.status_code,
+                    "body": body,
+                }
+            except Exception as exc:
+                last_error = {"path": path, "error": str(exc)}
+
+    return "none", {"error": "all candidate API paths failed", "last_error": last_error}
+
+
+async def _authorized(update: Update) -> bool:
+    if not update.effective_chat:
+        return False
+
+    allowed = _allowed_chat_ids()
+    chat_id = update.effective_chat.id
+
+    if chat_id not in allowed:
+        logger.warning("Rejected unauthorized Telegram chat_id=%s", chat_id)
+        if update.message:
+            await update.message.reply_text("Unauthorized chat.")
+        return False
+
+    return True
+
+
+async def _admin_authorized(update: Update) -> bool:
+    if not await _authorized(update):
+        return False
+
+    admins = _admin_chat_ids()
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    if admins and chat_id not in admins:
+        logger.warning("Rejected non-admin Telegram chat_id=%s", chat_id)
+        if update.message:
+            await update.message.reply_text("Admin chat required.")
+        return False
+
+    return True
+
+
+async def _reply_json(update: Update, title: str, path: str, body: Any) -> None:
+    if update.message:
+        await update.message.reply_text(
+            f"{title} endpoint: {path}\n{_format_payload(body)}",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+
+
+async def _reply_unavailable(update: Update, label: str) -> None:
+    if update.message:
+        await update.message.reply_text(
+            f"{label} is not exposed by this API yet. Use protected API/CLI diagnostics on the VPS."
+        )
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _authorized(update):
+        return
+
+    if update.message:
+        await update.message.reply_text(
+            "Trading Telegram bot online.\n\n"
+            "Available commands:\n"
+            "/health\n"
+            "/status\n"
+            "/account\n"
+            "/positions\n"
+            "/orders\n"
+            "/kill\n\n"
+            "No order-placement commands are enabled in this bot."
+        )
+
+
+async def health(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _authorized(update):
+        return
+
+    path, body = await _api_get(HEALTH_PATHS)
+    await _reply_json(update, "Health", path, body)
+
+
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _authorized(update):
+        return
+
+    path, body = await _api_get(STATUS_PATHS)
+    await _reply_json(update, "Status", path, body)
+
+
+async def account(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _authorized(update):
+        return
+
+    await _reply_unavailable(update, "Account report")
+
+
+async def positions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _authorized(update):
+        return
+
+    await _reply_unavailable(update, "Positions report")
+
+
+async def orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _authorized(update):
+        return
+
+    await _reply_unavailable(update, "Orders report")
+
+
+async def kill(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _admin_authorized(update):
+        return
+
+    path, body = await _api_post(KILL_SWITCH_PATHS)
+    await _reply_json(update, "Kill-switch", path, body)
+
+
+def main() -> None:
+    token = _required_env("TELEGRAM_BOT_TOKEN")
+    _allowed_chat_ids()
+
+    application = ApplicationBuilder().token(token).build()
+
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("health", health))
+    application.add_handler(CommandHandler("status", status))
+    application.add_handler(CommandHandler("account", account))
+    application.add_handler(CommandHandler("positions", positions))
+    application.add_handler(CommandHandler("orders", orders))
+    application.add_handler(CommandHandler("kill", kill))
+
+    logger.info("Starting Telegram long polling")
+    application.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,
+    )
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

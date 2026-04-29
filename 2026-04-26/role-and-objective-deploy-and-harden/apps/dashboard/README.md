@@ -15,7 +15,7 @@ Next.js dashboard deployable to Vercel for monitoring the VPS-backed trading sys
 Set the Vercel project root to:
 
 ```text
-apps/dashboard
+2026-04-26/role-and-objective-deploy-and-harden/apps/dashboard
 ```
 
 Required environment variables:
@@ -30,6 +30,16 @@ DASHBOARD_ALLOW_CONTROL_ACTIONS=false
 ```
 
 Keep `DASHBOARD_ALLOW_CONTROL_ACTIONS=false` for monitoring-only mode. Set it to `true` only when operator control actions are explicitly approved.
+
+If DNS for `jlsprojects.com` is pointed at Vercel while the API remains on the VPS, set:
+
+```text
+TRADING_API_BASE_URL=https://45.142.140.188
+TRADING_API_HOST_HEADER=jlsprojects.com
+TRADING_API_TLS_SERVERNAME=jlsprojects.com
+```
+
+This keeps the browser proxy-only while the server route connects to the VPS IP and validates the existing `jlsprojects.com` TLS certificate.
 
 ## Local Development
 
