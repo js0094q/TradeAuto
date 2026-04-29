@@ -29,6 +29,16 @@ class AlpacaCliProfileFlagTests(unittest.TestCase):
         self.assertEqual(run.call_args.args[0][-1], "--quiet")
         self.assertEqual(run.call_args.kwargs["env"]["ALPACA_PROFILE"], "paper")
 
+    def test_data_cli_returns_structured_error_when_binary_is_unavailable(self) -> None:
+        with patch(
+            "trading_system.data.alpaca_provider.subprocess.run",
+            side_effect=FileNotFoundError("alpaca"),
+        ):
+            result = CliRunner(profile="paper").run(["clock"])
+        self.assertFalse(result.ok)
+        self.assertEqual(result.returncode, 127)
+        self.assertIn("alpaca cli unavailable", result.stderr.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

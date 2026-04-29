@@ -54,14 +54,22 @@ class CliRunner:
             command.extend(["--profile", self.profile])
         command.extend(args)
         command.append("--quiet")
-        completed = subprocess.run(
-            command,
-            check=False,
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=self.timeout_seconds,
-        )
+        try:
+            completed = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=self.timeout_seconds,
+            )
+        except OSError as exc:
+            return CliResult(
+                ok=False,
+                returncode=127,
+                stdout="",
+                stderr=f"alpaca cli unavailable: {exc}",
+            )
         return CliResult(
             ok=completed.returncode == 0,
             returncode=completed.returncode,

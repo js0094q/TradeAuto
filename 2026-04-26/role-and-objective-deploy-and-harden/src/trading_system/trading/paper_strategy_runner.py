@@ -86,14 +86,17 @@ def _normalize_symbol(symbol: str) -> str:
 
 
 def _paper_positions_snapshot(settings: Settings) -> tuple[dict[str, dict[str, float | str | None]], str | None]:
-    result = subprocess.run(
-        ["alpaca", "position", "list", "--quiet"],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=30,
-        env=_paper_cli_env(settings),
-    )
+    try:
+        result = subprocess.run(
+            ["alpaca", "position", "list", "--quiet"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=_paper_cli_env(settings),
+        )
+    except OSError as exc:
+        return {}, f"alpaca CLI unavailable: {exc}"
     if result.returncode != 0:
         return {}, (result.stderr or result.stdout).strip()[:500] or "alpaca position list failed"
     try:
@@ -179,14 +182,17 @@ def _paper_runtime_gate(settings: Settings) -> tuple[bool, tuple[str, ...]]:
 
 
 def _market_clock(settings: Settings) -> dict[str, Any]:
-    result = subprocess.run(
-        ["alpaca", "clock", "--quiet"],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=30,
-        env=_paper_cli_env(settings),
-    )
+    try:
+        result = subprocess.run(
+            ["alpaca", "clock", "--quiet"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=_paper_cli_env(settings),
+        )
+    except OSError as exc:
+        return {"is_open": False, "error": f"alpaca CLI unavailable: {exc}"}
     if result.returncode != 0:
         return {"is_open": False, "error": result.stderr.strip() or result.stdout.strip() or "alpaca clock failed"}
     try:
@@ -517,7 +523,13 @@ def _execute_paper_entries(
             client_order_id,
             "--quiet",
         ]
-        result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=30, env=env)
+        try:
+            result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=30, env=env)
+        except OSError as exc:
+            entry["status"] = "submit_failed"
+            entry["error"] = f"alpaca CLI unavailable: {exc}"[:500]
+            payload["orders"].append(entry)
+            continue
         entry["qty"] = round(quantity, 6)
         entry["notional_usd"] = round(notional, 2)
         entry["returncode"] = result.returncode

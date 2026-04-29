@@ -5,6 +5,7 @@
 !.env.live.example
 !.env.test.example
 .sshpw
+.telegrambotupdate.txt
 .venv/
 venv/
 __pycache__/

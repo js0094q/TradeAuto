@@ -329,6 +329,29 @@ class PaperStrategyRunnerTests(unittest.TestCase):
             submitted_sell_commands = [command for command in captured if "--side" in command and command[command.index("--side") + 1] == "sell"]
             self.assertTrue(submitted_sell_commands)
 
+    def test_positions_snapshot_handles_missing_alpaca_binary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(
+                paper_strategy_runner.subprocess,
+                "run",
+                side_effect=FileNotFoundError("alpaca"),
+            ):
+                positions, error = paper_strategy_runner._paper_positions_snapshot(settings(tmpdir))
+        self.assertEqual(positions, {})
+        self.assertIsNotNone(error)
+        self.assertIn("unavailable", str(error).lower())
+
+    def test_market_clock_handles_missing_alpaca_binary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(
+                paper_strategy_runner.subprocess,
+                "run",
+                side_effect=FileNotFoundError("alpaca"),
+            ):
+                payload = paper_strategy_runner._market_clock(settings(tmpdir))
+        self.assertFalse(payload["is_open"])
+        self.assertIn("unavailable", str(payload.get("error", "")).lower())
+
 
 if __name__ == "__main__":
     unittest.main()
