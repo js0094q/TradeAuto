@@ -23,6 +23,14 @@ apps/**/.vercel/
 .DS_Store
 logs/
 data/
+!src/trading_system/data/
+!src/trading_system/data/**
+!tests/data/
+!tests/data/**
+src/trading_system/data/**/__pycache__/
+src/trading_system/data/**/*.py[cod]
+tests/data/**/__pycache__/
+tests/data/**/*.py[cod]
 state/
 backups/
 *.log

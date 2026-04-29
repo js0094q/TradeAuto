@@ -1,0 +1,392 @@
+{
+  "cost_case": "moderate",
+  "fetch_errors": [],
+  "live_trading_enabled": false,
+  "option_contracts_sampled": 100,
+  "orders_placed": false,
+  "periods": [
+    [
+      "2018_volatility_shock",
+      "2018 volatility shock",
+      "2018-01-01",
+      "2018-04-30"
+    ],
+    [
+      "2020_covid_crash_rebound",
+      "2020 COVID crash and rebound",
+      "2020-02-01",
+      "2020-07-31"
+    ],
+    [
+      "2021_liquidity_momentum",
+      "2021 liquidity/momentum",
+      "2021-01-01",
+      "2021-12-31"
+    ],
+    [
+      "2022_rate_hike_bear",
+      "2022 rate-hike bear market",
+      "2022-01-01",
+      "2022-12-31"
+    ],
+    [
+      "2023_mega_cap_ai",
+      "2023 mega-cap/AI concentration",
+      "2023-01-01",
+      "2023-12-31"
+    ],
+    [
+      "2024_normalization",
+      "2024 recent market structure",
+      "2024-01-01",
+      "2024-12-31"
+    ],
+    [
+      "2025_2026_recent",
+      "2025-2026 recent behavior",
+      "2025-01-01",
+      "2026-04-28"
+    ]
+  ],
+  "provider": "alpaca_cli_read_only",
+  "results": {
+    "cross_sectional_momentum_rotation_v1": {
+      "metrics": {
+        "by_regime": {
+          "2021_liquidity_momentum": -2.1631601883673737,
+          "2022_rate_hike_bear": -0.21215058043575108,
+          "2023_mega_cap_ai": -0.21464631647975563,
+          "2024_normalization": 0.02054419080492842,
+          "2025_2026_recent": -5.907142558246709
+        },
+        "by_symbol": {
+          "DIA": 1.0061692150865889,
+          "IWM": 0.4883289062622026,
+          "QQQ": -6.224868747733448,
+          "SPY": 0.8641128269844278,
+          "XLE": 0.41202910328642506,
+          "XLF": 5.054070028750754,
+          "XLI": -1.1397090000330865,
+          "XLK": -11.72790378866659,
+          "XLV": 2.7912160033380626
+        },
+        "by_time_of_day": {
+          "daily_close": -8.476555452724666
+        },
+        "max_drawdown": 0.01330217858378387,
+        "profit_factor": 0.7864573666399713,
+        "sharpe": -1.1271364927929772,
+        "slippage_adjusted_return": -0.008476555452724662,
+        "sortino": -1.007600851726573,
+        "total_return": -0.008476555452724662,
+        "trade_count": 58,
+        "win_rate": 0.5344827586206896
+      },
+      "notes": [
+        "Top-2 60-day ETF momentum rotation, 21-day hold, long-only"
+      ],
+      "period_returns": {
+        "2021_liquidity_momentum": -0.0021631601883673737,
+        "2022_rate_hike_bear": -0.0002121505804357507,
+        "2023_mega_cap_ai": -0.0002146463164797557,
+        "2024_normalization": 2.054419080492728e-05,
+        "2025_2026_recent": -0.005907142558246711
+      },
+      "periods_tested": [
+        "2021_liquidity_momentum",
+        "2022_rate_hike_bear",
+        "2023_mega_cap_ai",
+        "2024_normalization",
+        "2025_2026_recent"
+      ],
+      "symbols_tested": [
+        "DIA",
+        "IWM",
+        "QQQ",
+        "SPY",
+        "XLE",
+        "XLF",
+        "XLI",
+        "XLK",
+        "XLV"
+      ]
+    },
+    "crypto_trend_breakout_v1": {
+      "metrics": {
+        "by_regime": {
+          "2021_liquidity_momentum": 8.310338379926709,
+          "2022_rate_hike_bear": -4.953255501045598,
+          "2023_mega_cap_ai": 1.6411517084128064,
+          "2024_normalization": 19.96473832980546,
+          "2025_2026_recent": 4.100804962268649
+        },
+        "by_symbol": {
+          "BTC/USD": 11.41037579083254,
+          "ETH/USD": 17.653402088535483
+        },
+        "by_time_of_day": {
+          "daily_close": 29.063777879368025
+        },
+        "max_drawdown": 0.007654544448629167,
+        "profit_factor": 1.8295087285463374,
+        "sharpe": 3.8522141511469425,
+        "slippage_adjusted_return": 0.029063777879368022,
+        "sortino": 7.693284576329231,
+        "total_return": 0.029063777879368022,
+        "trade_count": 42,
+        "win_rate": 0.5714285714285714
+      },
+      "notes": [
+        "20-day breakout, ATR-proxy expansion, 10-day hold; spread evidence still required"
+      ],
+      "period_returns": {
+        "2021_liquidity_momentum": 0.00831033837992671,
+        "2022_rate_hike_bear": -0.004953255501045598,
+        "2023_mega_cap_ai": 0.0016411517084128065,
+        "2024_normalization": 0.019964738329805456,
+        "2025_2026_recent": 0.004100804962268647
+      },
+      "periods_tested": [
+        "2021_liquidity_momentum",
+        "2022_rate_hike_bear",
+        "2023_mega_cap_ai",
+        "2024_normalization",
+        "2025_2026_recent"
+      ],
+      "symbols_tested": [
+        "BTC/USD",
+        "ETH/USD"
+      ]
+    },
+    "etf_time_series_momentum_v1": {
+      "metrics": {
+        "by_regime": {
+          "2021_liquidity_momentum": 2.229862576330422,
+          "2022_rate_hike_bear": 0.3938639991206192,
+          "2023_mega_cap_ai": 3.869790473486488,
+          "2024_normalization": 2.380904368827178,
+          "2025_2026_recent": -17.448938984448308
+        },
+        "by_symbol": {
+          "DIA": 1.9821992554390682,
+          "IWM": -2.3823651293023476,
+          "QQQ": 2.7730996399962384,
+          "SPY": 2.364392983259945,
+          "XLE": -18.672797294011545,
+          "XLF": 0.4542051303838069,
+          "XLI": 0.1374026098186263,
+          "XLK": 4.570673706275254,
+          "XLV": 0.19867153145736083
+        },
+        "by_time_of_day": {
+          "daily_close": -8.5745175666836
+        },
+        "max_drawdown": 0.019434016545807252,
+        "profit_factor": 0.7744793566808751,
+        "sharpe": -1.091627332963333,
+        "slippage_adjusted_return": -0.008574517566683594,
+        "sortino": -0.9305452132389361,
+        "total_return": -0.008574517566683594,
+        "trade_count": 67,
+        "win_rate": 0.5373134328358209
+      },
+      "notes": [
+        "20-day hold, 50/200-day trend, 20/60-day return confirmation"
+      ],
+      "period_returns": {
+        "2021_liquidity_momentum": 0.0022298625763304217,
+        "2022_rate_hike_bear": 0.0003938639991206192,
+        "2023_mega_cap_ai": 0.0038697904734864876,
+        "2024_normalization": 0.0023809043688271785,
+        "2025_2026_recent": -0.017448938984448305
+      },
+      "periods_tested": [
+        "2021_liquidity_momentum",
+        "2022_rate_hike_bear",
+        "2023_mega_cap_ai",
+        "2024_normalization",
+        "2025_2026_recent"
+      ],
+      "symbols_tested": [
+        "DIA",
+        "IWM",
+        "QQQ",
+        "SPY",
+        "XLE",
+        "XLF",
+        "XLI",
+        "XLK",
+        "XLV"
+      ]
+    },
+    "opening_range_breakout_v1": {
+      "metrics": {
+        "by_regime": {},
+        "by_symbol": {},
+        "by_time_of_day": {},
+        "max_drawdown": 0.0,
+        "profit_factor": 0.0,
+        "sharpe": 0.0,
+        "slippage_adjusted_return": 0.0,
+        "sortino": 0.0,
+        "total_return": 0.0,
+        "trade_count": 0,
+        "win_rate": 0.0
+      },
+      "notes": [
+        "Intraday provider validation still required."
+      ],
+      "period_returns": {},
+      "periods_tested": [],
+      "symbols_tested": []
+    },
+    "post_earnings_drift_v1": {
+      "metrics": {
+        "by_regime": {},
+        "by_symbol": {},
+        "by_time_of_day": {},
+        "max_drawdown": 0.0,
+        "profit_factor": 0.0,
+        "sharpe": 0.0,
+        "slippage_adjusted_return": 0.0,
+        "sortino": 0.0,
+        "total_return": 0.0,
+        "trade_count": 0,
+        "win_rate": 0.0
+      },
+      "notes": [
+        "Point-in-time earnings surprise data unavailable."
+      ],
+      "period_returns": {},
+      "periods_tested": [],
+      "symbols_tested": []
+    },
+    "vwap_mean_reversion_v1": {
+      "metrics": {
+        "by_regime": {},
+        "by_symbol": {},
+        "by_time_of_day": {},
+        "max_drawdown": 0.0,
+        "profit_factor": 0.0,
+        "sharpe": 0.0,
+        "slippage_adjusted_return": 0.0,
+        "sortino": 0.0,
+        "total_return": 0.0,
+        "trade_count": 0,
+        "win_rate": 0.0
+      },
+      "notes": [
+        "Intraday VWAP and trend-day validation still required."
+      ],
+      "period_returns": {},
+      "periods_tested": [],
+      "symbols_tested": []
+    }
+  },
+  "scores": {
+    "cross_sectional_momentum_rotation_v1": {
+      "backtest_result": 3,
+      "data_availability": 5,
+      "execution_realism": 3,
+      "failure_safety": 5,
+      "implementation_readiness": 5,
+      "monitoring": 3,
+      "real_world_basis": 5,
+      "risk_containment": 5,
+      "signal_clarity": 5,
+      "walk_forward_result": 1
+    },
+    "crypto_trend_breakout_v1": {
+      "backtest_result": 3,
+      "data_availability": 5,
+      "execution_realism": 3,
+      "failure_safety": 5,
+      "implementation_readiness": 5,
+      "monitoring": 3,
+      "real_world_basis": 5,
+      "risk_containment": 5,
+      "signal_clarity": 5,
+      "walk_forward_result": 3
+    },
+    "etf_time_series_momentum_v1": {
+      "backtest_result": 3,
+      "data_availability": 5,
+      "execution_realism": 3,
+      "failure_safety": 5,
+      "implementation_readiness": 5,
+      "monitoring": 3,
+      "real_world_basis": 5,
+      "risk_containment": 5,
+      "signal_clarity": 5,
+      "walk_forward_result": 3
+    },
+    "opening_range_breakout_v1": {
+      "backtest_result": 1,
+      "data_availability": 2,
+      "execution_realism": 3,
+      "failure_safety": 5,
+      "implementation_readiness": 5,
+      "monitoring": 3,
+      "real_world_basis": 5,
+      "risk_containment": 5,
+      "signal_clarity": 5,
+      "walk_forward_result": 1
+    },
+    "post_earnings_drift_v1": {
+      "backtest_result": 1,
+      "data_availability": 2,
+      "execution_realism": 3,
+      "failure_safety": 5,
+      "implementation_readiness": 3,
+      "monitoring": 3,
+      "real_world_basis": 4,
+      "risk_containment": 5,
+      "signal_clarity": 4,
+      "walk_forward_result": 1
+    },
+    "vwap_mean_reversion_v1": {
+      "backtest_result": 1,
+      "data_availability": 2,
+      "execution_realism": 3,
+      "failure_safety": 5,
+      "implementation_readiness": 5,
+      "monitoring": 3,
+      "real_world_basis": 5,
+      "risk_containment": 5,
+      "signal_clarity": 5,
+      "walk_forward_result": 1
+    }
+  },
+  "statuses": {
+    "cross_sectional_momentum_rotation_v1": [
+      "shadow_ready",
+      "shadow",
+      "Provider-backed evidence exists, but breadth or net-period stability is not yet enough for paper promotion."
+    ],
+    "crypto_trend_breakout_v1": [
+      "shadow_ready",
+      "shadow",
+      "Daily crypto bars validate signal availability; spread/liquidity and 24/7 monitoring evidence still block paper promotion."
+    ],
+    "etf_time_series_momentum_v1": [
+      "shadow_ready",
+      "shadow",
+      "Provider-backed evidence exists across multiple regimes, but aggregate cost-adjusted results do not yet support paper promotion."
+    ],
+    "opening_range_breakout_v1": [
+      "shadow_ready",
+      "shadow",
+      "Implementation is explainable and gated, but provider-backed intraday validation is still required."
+    ],
+    "post_earnings_drift_v1": [
+      "needs_data",
+      "research_only",
+      "Earnings surprise and revisions data are not available in the current provider adapter."
+    ],
+    "vwap_mean_reversion_v1": [
+      "shadow_ready",
+      "shadow",
+      "Implementation is explainable and gated, but provider-backed intraday validation is still required."
+    ]
+  }
+}

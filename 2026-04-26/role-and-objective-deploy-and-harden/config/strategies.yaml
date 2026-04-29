@@ -1,0 +1,91 @@
+strategies:
+  etf_time_series_momentum_v1:
+    enabled: false
+    modes:
+      shadow: true
+      paper: true
+      restricted_live: false
+    max_position_notional_usd: 25
+    max_daily_trades: 1
+    max_open_positions: 1
+    max_daily_loss_usd: 15
+    max_order_notional_usd: 25
+    risk_profile:
+      allow_short: false
+      stop_loss_pct: 0.04
+      max_holding_minutes: 13000
+  cross_sectional_momentum_rotation_v1:
+    enabled: false
+    modes:
+      shadow: true
+      paper: true
+      restricted_live: false
+    max_position_notional_usd: 25
+    max_daily_trades: 1
+    max_open_positions: 3
+    max_daily_loss_usd: 15
+    max_order_notional_usd: 25
+    risk_profile:
+      allow_short: false
+      stop_loss_pct: 0.05
+      max_holding_minutes: 2000
+  opening_range_breakout_v1:
+    enabled: false
+    modes:
+      shadow: true
+      paper: true
+      restricted_live: false
+    max_position_notional_usd: 25
+    max_daily_trades: 1
+    max_open_positions: 1
+    max_daily_loss_usd: 15
+    max_order_notional_usd: 25
+    risk_profile:
+      allow_short: false
+      stop_loss_pct: 0.03
+      max_holding_minutes: 390
+  vwap_mean_reversion_v1:
+    enabled: false
+    modes:
+      shadow: true
+      paper: true
+      restricted_live: false
+    max_position_notional_usd: 25
+    max_daily_trades: 1
+    max_open_positions: 1
+    max_daily_loss_usd: 15
+    max_order_notional_usd: 25
+    risk_profile:
+      allow_short: false
+      stop_loss_pct: 0.035
+      max_holding_minutes: 360
+  post_earnings_drift_v1:
+    enabled: false
+    modes:
+      shadow: true
+      paper: false
+      restricted_live: false
+    max_position_notional_usd: 25
+    max_daily_trades: 0
+    max_open_positions: 0
+    max_daily_loss_usd: 15
+    max_order_notional_usd: 0
+    risk_profile:
+      allow_short: false
+      stop_loss_pct: 0.05
+      max_holding_minutes: 13000
+  crypto_trend_breakout_v1:
+    enabled: false
+    modes:
+      shadow: true
+      paper: true
+      restricted_live: false
+    max_position_notional_usd: 15
+    max_daily_trades: 1
+    max_open_positions: 1
+    max_daily_loss_usd: 10
+    max_order_notional_usd: 15
+    risk_profile:
+      allow_short: false
+      stop_loss_pct: 0.05
+      max_holding_minutes: 600
