@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import time
+from collections import Counter, deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -84,11 +86,19 @@ def readiness_payload(settings: Settings, *, external: bool = True) -> dict[str,
 
 
 def metrics_payload(settings: Settings) -> dict[str, Any]:
+    shared = _shared_dir(settings)
     kill_switch_enabled = False
     try:
         kill_switch_enabled = KillSwitch(settings.kill_switch_file).is_enabled()
     except OSError:
         kill_switch_enabled = True
+    process_states = _process_states()
+    paper_order_state = _paper_order_state(shared)
+    paper_activity = _latest_paper_activity(shared / "logs" / "paper_strategy_rebalances.jsonl")
+    api_error = _latest_error_line(shared / "logs" / "api.err.log")
+    paper_error = _latest_error_line(shared / "logs" / "paper.err.log")
+    live_error = _latest_live_engine_error(shared / "logs" / "live.err.log")
+    telegram_warning = _latest_warning_line(shared / "logs" / "telegram.err.log")
     paper_strategy = paper_strategy_status_payload(settings)
     paper_strategies = paper_strategy.get("strategies") if isinstance(paper_strategy.get("strategies"), list) else []
     active_strategy = None
@@ -100,22 +110,45 @@ def metrics_payload(settings: Settings) -> dict[str, Any]:
     market_open_status = "unknown"
     if isinstance(paper_execution, dict) and isinstance(paper_execution.get("market_open"), bool):
         market_open_status = "open" if paper_execution["market_open"] else "closed"
+    runtime_gate_blocks = ()
+    if isinstance(paper_execution, dict):
+        maybe_blocks = paper_execution.get("runtime_gate_blocks")
+        if isinstance(maybe_blocks, list):
+            runtime_gate_blocks = tuple(str(item) for item in maybe_blocks)
+
     return {
         "uptime_seconds": round(time.time() - STARTED_AT, 3),
         "trading_mode": settings.trading_mode,
-        "broker_account_status": "unknown",
+        "broker_account_status": (
+            "live_engine_running"
+            if process_states["live_engine_running"]
+            else "paper_engine_running"
+            if process_states["paper_engine_running"]
+            else "unknown"
+        ),
         "market_open_status": market_open_status,
         "data_freshness": str(paper_strategy.get("timestamp") or paper_strategy.get("file_updated_at") or "unknown"),
-        "open_positions": None,
-        "open_orders": None,
+        "open_positions": len(paper_activity["latest_selected_symbols"]) or None,
+        "open_orders": paper_order_state.get("client_order_ids_count"),
         "realized_pnl": None,
         "unrealized_pnl": None,
-        "risk_rejects": None,
+        "risk_rejects": paper_activity["latest_risk_rejects"] if paper_activity["latest_risk_rejects"] else None,
         "kill_switch_state": "enabled" if kill_switch_enabled else "disabled",
         "active_strategy": active_strategy,
         "strategy_score": None,
-        "last_trade_time": None,
-        "last_telegram_alert_time": None,
+        "last_trade_time": paper_activity["last_submitted_trade_time"],
+        "last_telegram_alert_time": telegram_warning,
+        "paper_execution_status": paper_execution.get("status") if isinstance(paper_execution, dict) else "unknown",
+        "paper_runtime_gate_passed": bool(paper_execution.get("runtime_gate_passed")) if isinstance(paper_execution, dict) else None,
+        "paper_runtime_gate_blocks": list(runtime_gate_blocks),
+        "paper_order_status_counts": paper_activity["latest_order_status_counts"],
+        "api_process_running": process_states["api_process_running"],
+        "paper_engine_running": process_states["paper_engine_running"],
+        "live_engine_running": process_states["live_engine_running"],
+        "telegram_bot_running": process_states["telegram_bot_running"],
+        "latest_api_error": api_error,
+        "latest_paper_error": paper_error,
+        "latest_live_error": live_error,
     }
 
 
@@ -174,3 +207,162 @@ def paper_strategy_status_payload(settings: Settings) -> dict[str, Any]:
 
 def _shared_dir(settings: Settings) -> Path:
     return Path(settings.raw.get("TRADING_SYSTEM_SHARED_DIR", "/opt/trading-system/shared"))
+
+
+def _tail_lines(path: Path, *, max_lines: int = 300) -> list[str]:
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            return [line.rstrip("\n") for line in deque(handle, maxlen=max_lines)]
+    except OSError:
+        return []
+
+
+def _latest_error_line(path: Path) -> str | None:
+    for line in reversed(_tail_lines(path)):
+        if "ERROR" in line or "Traceback" in line:
+            return line
+    return None
+
+
+def _latest_warning_line(path: Path) -> str | None:
+    for line in reversed(_tail_lines(path)):
+        if "WARNING" in line:
+            return line
+    return None
+
+
+def _latest_live_engine_error(path: Path) -> str | None:
+    lines = _tail_lines(path)
+    if not lines:
+        return None
+    last_started_index = -1
+    for index, line in enumerate(lines):
+        if "trading engine started in live mode" in line:
+            last_started_index = index
+    for index in range(len(lines) - 1, -1, -1):
+        line = lines[index]
+        if "ERROR" in line or "Traceback" in line:
+            if last_started_index != -1 and index < last_started_index:
+                return None
+            return line
+    return None
+
+
+def _process_states() -> dict[str, bool]:
+    try:
+        result = subprocess.run(
+            ["ps", "-eo", "args="],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {
+            "api_process_running": False,
+            "paper_engine_running": False,
+            "live_engine_running": False,
+            "telegram_bot_running": False,
+        }
+
+    lines = result.stdout.splitlines() if result.returncode == 0 else []
+    return {
+        "api_process_running": any("uvicorn trading_system.api.app:app" in line for line in lines),
+        "paper_engine_running": any("trading_system.trading.paper_strategy_runner" in line for line in lines),
+        "live_engine_running": any("trading_system.trading.engine --mode live" in line for line in lines),
+        "telegram_bot_running": any("trading_system.telegram.bot" in line for line in lines),
+    }
+
+
+def _paper_order_state(shared: Path) -> dict[str, int]:
+    path = shared / "state" / "paper_entry_orders.json"
+    if not path.exists():
+        return {"client_order_ids_count": 0}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"client_order_ids_count": 0}
+    if not isinstance(payload, dict):
+        return {"client_order_ids_count": 0}
+    client_ids = payload.get("client_order_ids")
+    if not isinstance(client_ids, list):
+        return {"client_order_ids_count": 0}
+    return {"client_order_ids_count": len(client_ids)}
+
+
+def _latest_paper_activity(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {
+            "last_submitted_trade_time": None,
+            "latest_risk_rejects": 0,
+            "latest_selected_symbols": tuple(),
+            "latest_order_status_counts": {},
+        }
+
+    last_submitted_trade_time = None
+    latest_payload: dict[str, Any] | None = None
+
+    for line in _tail_lines(path, max_lines=500):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        latest_payload = payload
+        paper_execution = payload.get("paper_execution")
+        if isinstance(paper_execution, dict):
+            for order in paper_execution.get("orders") or []:
+                if isinstance(order, dict) and order.get("status") == "submitted":
+                    timestamp = payload.get("timestamp") or payload.get("ts")
+                    if isinstance(timestamp, str):
+                        last_submitted_trade_time = timestamp
+
+    if latest_payload is None:
+        return {
+            "last_submitted_trade_time": None,
+            "latest_risk_rejects": 0,
+            "latest_selected_symbols": tuple(),
+            "latest_order_status_counts": {},
+        }
+
+    latest_risk_rejects = 0
+    latest_selected_symbols: list[str] = []
+    latest_order_status_counts: Counter[str] = Counter()
+
+    strategies = latest_payload.get("strategies")
+    if isinstance(strategies, list):
+        for index, strategy in enumerate(strategies):
+            if not isinstance(strategy, dict):
+                continue
+            if index == 0:
+                selected = strategy.get("selected")
+                if isinstance(selected, list):
+                    for item in selected:
+                        if isinstance(item, dict):
+                            symbol = item.get("symbol")
+                            if isinstance(symbol, str):
+                                latest_selected_symbols.append(symbol)
+            risk_blocks = strategy.get("risk_blocks")
+            if isinstance(risk_blocks, list):
+                latest_risk_rejects += len(risk_blocks)
+
+    paper_execution = latest_payload.get("paper_execution")
+    if isinstance(paper_execution, dict):
+        for order in paper_execution.get("orders") or []:
+            if not isinstance(order, dict):
+                continue
+            status = str(order.get("status") or "unknown")
+            latest_order_status_counts[status] += 1
+            if status == "blocked_by_risk_engine":
+                latest_risk_rejects += 1
+
+    return {
+        "last_submitted_trade_time": last_submitted_trade_time,
+        "latest_risk_rejects": latest_risk_rejects,
+        "latest_selected_symbols": tuple(latest_selected_symbols),
+        "latest_order_status_counts": dict(latest_order_status_counts),
+    }

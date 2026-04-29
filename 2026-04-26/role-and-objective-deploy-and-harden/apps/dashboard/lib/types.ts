@@ -36,6 +36,17 @@ export type MetricsPayload = {
   strategy_score?: number | null;
   last_trade_time?: string | null;
   last_telegram_alert_time?: string | null;
+  paper_execution_status?: string;
+  paper_runtime_gate_passed?: boolean | null;
+  paper_runtime_gate_blocks?: string[];
+  paper_order_status_counts?: Record<string, number>;
+  api_process_running?: boolean;
+  paper_engine_running?: boolean;
+  live_engine_running?: boolean;
+  telegram_bot_running?: boolean;
+  latest_api_error?: string | null;
+  latest_paper_error?: string | null;
+  latest_live_error?: string | null;
 };
 
 export type PaperStrategyExecution = {

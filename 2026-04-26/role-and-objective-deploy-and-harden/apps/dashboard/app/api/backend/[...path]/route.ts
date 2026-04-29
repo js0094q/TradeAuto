@@ -12,8 +12,8 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const GET_ALLOWLIST = new Set(["health", "ready", "metrics", "paper-strategy"]);
-const POST_ALLOWLIST = new Set(["admin/kill", "admin/resume"]);
-const ADMIN_REQUIRED = new Set(["ready", "metrics", "paper-strategy", "admin/kill", "admin/resume"]);
+const POST_ALLOWLIST = new Set(["admin/kill", "admin/resume", "admin/paper-cycle"]);
+const ADMIN_REQUIRED = new Set(["ready", "metrics", "paper-strategy", "admin/kill", "admin/resume", "admin/paper-cycle"]);
 
 type RouteContext = {
   params: Promise<{ path: string[] }>;
@@ -105,7 +105,12 @@ async function validateControlGate(path: string, request?: Request) {
   }
 
   const body = (await request?.json().catch(() => null)) as { confirmation?: string } | null;
-  const expected = path === "admin/resume" ? "YES_I_UNDERSTAND" : "ENABLE_KILL_SWITCH";
+  const expected =
+    path === "admin/resume"
+      ? "YES_I_UNDERSTAND"
+      : path === "admin/paper-cycle"
+        ? "RUN_PAPER_CYCLE"
+        : "ENABLE_KILL_SWITCH";
   if (body?.confirmation !== expected) {
     return NextResponse.json(
       { ok: false, error: `Confirmation phrase required: ${expected}` },

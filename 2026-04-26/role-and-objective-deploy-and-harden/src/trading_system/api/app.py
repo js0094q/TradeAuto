@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI, Header, HTTPException
 
-from trading_system.config import load_settings
+from trading_system.config import load_settings, validate_settings
 from trading_system.health import health_payload, metrics_payload, paper_strategy_status_payload, readiness_payload
 from trading_system.kill_switch import KillSwitch
 
@@ -57,3 +57,22 @@ def disable_kill_switch(x_admin_token: str | None = Header(default=None)) -> dic
         raise HTTPException(status_code=503, detail=payload)
     KillSwitch(settings.kill_switch_file).disable()
     return {"ok": True, "kill_switch": "disabled"}
+
+
+@app.post("/admin/paper-cycle")
+def run_paper_cycle(x_admin_token: str | None = Header(default=None)) -> dict:
+    require_admin_token(x_admin_token)
+
+    paper_env = "/opt/trading-system/shared/.env.paper"
+    paper_settings = load_settings(paper_env)
+    validation = validate_settings(paper_settings, mode="paper")
+    if not validation.ok:
+        raise HTTPException(
+            status_code=503,
+            detail={"ok": False, "error": "paper_env_invalid", "checks": validation.errors},
+        )
+
+    from trading_system.trading.paper_strategy_runner import run_once
+
+    payload = run_once(paper_settings)
+    return {"ok": True, "paper_cycle": payload}

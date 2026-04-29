@@ -9,6 +9,7 @@ Next.js dashboard deployable to Vercel for monitoring the VPS-backed trading sys
 - Backend paths are allowlisted in `app/api/backend/[...path]/route.ts`.
 - Control actions are disabled unless `DASHBOARD_ALLOW_CONTROL_ACTIONS=true`.
 - Resume trading additionally requires the confirmation phrase `YES_I_UNDERSTAND`.
+- Manual paper-cycle execution requires the confirmation phrase `RUN_PAPER_CYCLE`.
 
 ## Vercel Project Settings
 

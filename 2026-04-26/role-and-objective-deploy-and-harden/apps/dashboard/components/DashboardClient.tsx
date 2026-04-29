@@ -6,6 +6,7 @@ import {
   Lock,
   LogOut,
   Power,
+  PlayCircle,
   Radar,
   RefreshCw,
   Shield,
@@ -49,6 +50,7 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
   const [controlMessage, setControlMessage] = useState<string | null>(null);
   const [killConfirm, setKillConfirm] = useState("");
   const [resumeConfirm, setResumeConfirm] = useState("");
+  const [paperCycleConfirm, setPaperCycleConfirm] = useState("");
   const [controlBusy, setControlBusy] = useState<string | null>(null);
 
   async function loadSnapshot() {
@@ -118,11 +120,18 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
         icon: Shield,
       },
       {
-        label: "Paper Strategy",
-        value: paperStrategyOk ? "Current" : titleCase(paperStrategy?.status || "unknown"),
-        tone: paperStrategyOk ? "good" : paperStrategy?.status === "missing" ? "warn" : "bad",
+        label: "Paper Engine",
+        value: metrics?.paper_engine_running ? "Running" : "Stopped",
+        tone: metrics?.paper_engine_running ? "good" : "warn",
         detail: paperStrategySummary(paperStrategy, snapshot.paperStrategy?.error),
         icon: Radar,
+      },
+      {
+        label: "Live Engine",
+        value: metrics?.live_engine_running ? "Running" : "Stopped",
+        tone: metrics?.live_engine_running ? "good" : "warn",
+        detail: metrics?.latest_live_error ? "Recent live startup errors detected" : "No recent live engine error line",
+        icon: Activity,
       },
       {
         label: "Controls",
@@ -136,8 +145,10 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
       controlActionsEnabled,
       healthOk,
       killSwitchState,
+      metrics?.latest_live_error,
+      metrics?.live_engine_running,
+      metrics?.paper_engine_running,
       paperStrategy,
-      paperStrategyOk,
       readinessChecks,
       readyOk,
       snapshot.health,
@@ -146,7 +157,7 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
     ],
   );
 
-  async function sendControl(path: "admin/kill" | "admin/resume", confirmation: string) {
+  async function sendControl(path: "admin/kill" | "admin/resume" | "admin/paper-cycle", confirmation: string) {
     setControlBusy(path);
     setControlMessage(null);
     try {
@@ -275,6 +286,17 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
             icon="power"
             onSubmit={() => sendControl("admin/resume", resumeConfirm)}
           />
+          <ControlBlock
+            title="Run Paper Cycle"
+            detail="Runs one immediate paper strategy cycle on VPS. Requires RUN_PAPER_CYCLE."
+            phrase="RUN_PAPER_CYCLE"
+            value={paperCycleConfirm}
+            setValue={setPaperCycleConfirm}
+            disabled={!controlActionsEnabled || controlBusy !== null}
+            busy={controlBusy === "admin/paper-cycle"}
+            icon="play"
+            onSubmit={() => sendControl("admin/paper-cycle", paperCycleConfirm)}
+          />
           {!controlActionsEnabled ? (
             <p className="alert neutral">Control actions are disabled by `DASHBOARD_ALLOW_CONTROL_ACTIONS=false`.</p>
           ) : null}
@@ -347,6 +369,25 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
         <Metric label="Open Orders" value={formatNullable(metrics?.open_orders)} />
         <Metric label="Risk Rejects" value={formatNullable(metrics?.risk_rejects)} />
         <Metric label="Strategy" value={metrics?.active_strategy || primaryPaperStrategy?.strategy_name || "none"} />
+        <Metric label="Paper Execution" value={formatName(metrics?.paper_execution_status || "unknown")} />
+        <Metric label="Paper Gate" value={formatRuntimeGate(metrics?.paper_runtime_gate_passed, metrics?.paper_runtime_gate_blocks)} />
+        <Metric label="Last Trade" value={formatTimestamp(metrics?.last_trade_time)} />
+        <Metric label="API Process" value={formatRunning(metrics?.api_process_running)} />
+        <Metric label="Paper Process" value={formatRunning(metrics?.paper_engine_running)} />
+        <Metric label="Live Process" value={formatRunning(metrics?.live_engine_running)} />
+        <Metric label="Telegram Process" value={formatRunning(metrics?.telegram_bot_running)} />
+      </section>
+      <section className="panel" aria-labelledby="runtime-alerts-title">
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">VPS Runtime Alerts</p>
+            <h2 id="runtime-alerts-title">Latest Error Signals</h2>
+          </div>
+        </div>
+        <p className="muted compact">{metrics?.latest_api_error || "API: no recent error line"}</p>
+        <p className="muted compact">{metrics?.latest_paper_error || "Paper: no recent error line"}</p>
+        <p className="muted compact">{metrics?.latest_live_error || "Live: no recent error line"}</p>
+        <p className="muted compact">{metrics?.last_telegram_alert_time || "Telegram: no recent warning line"}</p>
       </section>
     </main>
   );
@@ -374,10 +415,10 @@ function ControlBlock(props: {
   setValue: (value: string) => void;
   disabled: boolean;
   busy: boolean;
-  icon: "stop" | "power";
+  icon: "stop" | "power" | "play";
   onSubmit: () => void;
 }) {
-  const Icon = props.icon === "stop" ? StopCircle : Power;
+  const Icon = props.icon === "stop" ? StopCircle : props.icon === "play" ? PlayCircle : Power;
   return (
     <form
       className="control-block"
@@ -507,6 +548,23 @@ function formatDuration(value: number | undefined) {
 
 function formatCurrency(value: number | undefined) {
   return value === undefined ? "unknown" : `$${value.toFixed(2)}`;
+}
+
+function formatRunning(value: boolean | undefined) {
+  if (value === undefined) {
+    return "unknown";
+  }
+  return value ? "running" : "stopped";
+}
+
+function formatRuntimeGate(passed: boolean | null | undefined, blocks?: string[]) {
+  if (passed === true) {
+    return "passed";
+  }
+  if (passed === false) {
+    return blocks?.length ? `blocked (${blocks.length})` : "blocked";
+  }
+  return "unknown";
 }
 
 function executionTone(status: string | undefined): Tone {
