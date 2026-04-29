@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
+import logging
+import signal
+import time
 from dataclasses import dataclass
+from typing import Any
 
 import requests
 
@@ -70,12 +73,83 @@ def send_message(token: str, chat_id: str, text: str) -> None:
     response.raise_for_status()
 
 
+def telegram_api_request(token: str, method: str, payload: dict[str, Any], *, timeout: int = 10) -> dict[str, Any]:
+    url = f"https://api.telegram.org/bot{token}/{method}"
+    response = requests.post(url, json=payload, timeout=timeout)
+    response.raise_for_status()
+    body = response.json()
+    if not body.get("ok"):
+        raise RuntimeError(f"Telegram API {method} failed: {body.get('description', 'unknown error')}")
+    return body
+
+
+def get_updates(token: str, offset: int | None, *, timeout_seconds: int = 50) -> list[dict[str, Any]]:
+    payload: dict[str, Any] = {"timeout": timeout_seconds, "allowed_updates": ["message"]}
+    if offset is not None:
+        payload["offset"] = offset
+    body = telegram_api_request(token, "getUpdates", payload, timeout=timeout_seconds + 10)
+    result = body.get("result", [])
+    if not isinstance(result, list):
+        raise RuntimeError("Telegram API getUpdates returned an invalid result")
+    return result
+
+
+def message_from_update(handler: TelegramCommandHandler, update: dict[str, Any]) -> TelegramMessage | None:
+    raw_message = update.get("message")
+    if not isinstance(raw_message, dict):
+        return None
+    raw_chat = raw_message.get("chat")
+    text = raw_message.get("text")
+    if not isinstance(raw_chat, dict) or not isinstance(text, str) or not text.startswith("/"):
+        return None
+    chat_id = raw_chat.get("id")
+    if chat_id is None:
+        return None
+    return handler.handle(str(chat_id), text)
+
+
+def run_long_polling(settings: Settings) -> int:
+    if not settings.telegram_bot_token:
+        logging.error("TELEGRAM_BOT_TOKEN is required")
+        return 2
+
+    handler = TelegramCommandHandler(settings)
+    running = True
+    offset: int | None = None
+
+    def stop(_signum: int, _frame: object) -> None:
+        nonlocal running
+        running = False
+
+    signal.signal(signal.SIGINT, stop)
+    signal.signal(signal.SIGTERM, stop)
+    telegram_api_request(settings.telegram_bot_token, "deleteWebhook", {"drop_pending_updates": True})
+    logging.info("telegram long polling started")
+
+    while running:
+        try:
+            for update in get_updates(settings.telegram_bot_token, offset):
+                update_id = update.get("update_id")
+                if isinstance(update_id, int):
+                    offset = update_id + 1
+                message = message_from_update(handler, update)
+                if message is not None:
+                    send_message(settings.telegram_bot_token, message.chat_id, message.text)
+        except requests.RequestException as exc:
+            logging.warning("telegram request failed: %s", exc)
+            time.sleep(5)
+
+    logging.info("telegram long polling stopped")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--env-file")
     parser.add_argument("--once-command")
     parser.add_argument("--once-chat-id")
     args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     settings = load_settings(args.env_file)
     handler = TelegramCommandHandler(settings)
 
@@ -84,10 +158,8 @@ def main() -> int:
         print(message.text)
         return 0
 
-    print("telegram long polling is not enabled in this scaffold; use python-telegram-bot integration before production", file=sys.stderr)
-    return 2
+    return run_long_polling(settings)
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
