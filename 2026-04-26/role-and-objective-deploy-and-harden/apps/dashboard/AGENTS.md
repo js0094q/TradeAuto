@@ -6,4 +6,4 @@
 - Keep backend paths allowlisted. Do not add wildcard proxy behavior.
 - Default to read-only monitoring. Control actions require `DASHBOARD_ALLOW_CONTROL_ACTIONS=true` and explicit confirmation phrases.
 - Do not store operator tokens in local storage or client-visible environment variables.
-- Production `TRADING_API_BASE_URL` must be HTTPS and should point to `https://jlsprojects.com`.
+- Production `TRADING_API_BASE_URL` must be HTTPS. If `jlsprojects.com` DNS points at Vercel, use the VPS-specific HTTPS hostname and keep browser traffic proxy-only through Vercel routes.

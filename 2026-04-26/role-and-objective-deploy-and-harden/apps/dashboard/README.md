@@ -1,6 +1,6 @@
 # Trading System Dashboard
 
-Next.js dashboard deployable to Vercel for monitoring the VPS-backed trading system at `https://jlsprojects.com`.
+Next.js dashboard deployable to Vercel for monitoring the VPS-backed trading system at `https://www.jlsprojects.com`.
 
 ## Security Model
 
@@ -21,7 +21,9 @@ Set the Vercel project root to:
 Required environment variables:
 
 ```text
-TRADING_API_BASE_URL=https://jlsprojects.com
+TRADING_API_BASE_URL=https://45.142.140.188.sslip.io
+TRADING_API_HOST_HEADER=45.142.140.188.sslip.io
+TRADING_API_TLS_SERVERNAME=45.142.140.188.sslip.io
 TRADING_API_ADMIN_TOKEN=<value from /opt/trading-system/shared/.env.live ADMIN_TOKEN>
 TRADING_API_BASIC_AUTH=<operator>:<value from /opt/trading-system/shared/config/nginx_operator_password>
 DASHBOARD_ACCESS_TOKEN=<operator login token>
@@ -31,15 +33,17 @@ DASHBOARD_ALLOW_CONTROL_ACTIONS=false
 
 Keep `DASHBOARD_ALLOW_CONTROL_ACTIONS=false` for monitoring-only mode. Set it to `true` only when operator control actions are explicitly approved.
 
-If DNS for `jlsprojects.com` is pointed at Vercel while the API remains on the VPS, set:
+Because DNS for `jlsprojects.com` is currently pointed at Vercel while the API remains on the VPS, production uses the VPS-specific hostname:
 
 ```text
-TRADING_API_BASE_URL=https://45.142.140.188
-TRADING_API_HOST_HEADER=jlsprojects.com
-TRADING_API_TLS_SERVERNAME=jlsprojects.com
+TRADING_API_BASE_URL=https://45.142.140.188.sslip.io
+TRADING_API_HOST_HEADER=45.142.140.188.sslip.io
+TRADING_API_TLS_SERVERNAME=45.142.140.188.sslip.io
 ```
 
-This keeps the browser proxy-only while the server route connects to the VPS IP and validates the existing `jlsprojects.com` TLS certificate.
+This keeps the browser proxy-only while the server route connects to the VPS through a renewable Let’s Encrypt certificate.
+
+The Vercel app also exposes public `/health`, which proxies the VPS health endpoint for uptime checks. Protected backend routes still require a dashboard session plus the server-side backend credentials.
 
 ## Local Development
 
