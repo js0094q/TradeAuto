@@ -37,3 +37,68 @@ export type MetricsPayload = {
   last_trade_time?: string | null;
   last_telegram_alert_time?: string | null;
 };
+
+export type PaperStrategyExecution = {
+  status?: string;
+  enabled?: boolean;
+  runtime_gate_passed?: boolean;
+  runtime_gate_blocks?: string[];
+  market_open?: boolean;
+  notional_usd?: number;
+  order_type?: string;
+  orders?: Array<{
+    symbol?: string;
+    side?: string;
+    status?: string;
+    submitted?: boolean;
+    client_order_id?: string;
+    risk_blocks?: string[];
+    error?: string;
+    limit_price?: number;
+    qty?: number;
+  }>;
+};
+
+export type PaperStrategySnapshot = {
+  strategy_name: string;
+  mode: string;
+  timestamp?: string;
+  regime?: Record<string, string | number | boolean | null>;
+  selected?: Array<{
+    symbol: string;
+    target_weight?: number | null;
+    reason?: string;
+    indicators?: Record<string, unknown>;
+  }>;
+  exits?: Array<{
+    symbol: string;
+    reason: string;
+  }>;
+  risk_blocks?: string[];
+  orders?: Array<{
+    strategy_name?: string;
+    symbol: string;
+    side: string;
+    target_weight?: number | null;
+    quantity?: number | null;
+    notional?: number | null;
+    reason?: string;
+    risk_approved?: boolean;
+    risk_blocks?: string[];
+    mode?: string;
+  }>;
+  warnings?: string[];
+};
+
+export type PaperStrategyPayload = {
+  ok: boolean;
+  status: "available" | "missing" | "invalid" | string;
+  message?: string;
+  mode?: string;
+  timestamp?: string | null;
+  file_updated_at?: string | null;
+  live_trading_changed?: boolean;
+  kill_switch_enabled?: boolean;
+  paper_execution?: PaperStrategyExecution | null;
+  strategies?: PaperStrategySnapshot[];
+};

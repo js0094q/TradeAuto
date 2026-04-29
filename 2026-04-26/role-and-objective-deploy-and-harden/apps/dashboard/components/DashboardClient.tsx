@@ -2,11 +2,11 @@
 
 import {
   Activity,
-  AlertTriangle,
   CheckCircle2,
   Lock,
   LogOut,
   Power,
+  Radar,
   RefreshCw,
   Shield,
   StopCircle,
@@ -14,17 +14,27 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import type { HealthPayload, MetricsPayload, ProxyEnvelope, ReadinessPayload } from "@/lib/types";
+import type {
+  HealthPayload,
+  MetricsPayload,
+  PaperStrategyPayload,
+  PaperStrategySnapshot,
+  ProxyEnvelope,
+  ReadinessPayload,
+} from "@/lib/types";
 
 type DashboardClientProps = {
   backendLabel: string;
   controlActionsEnabled: boolean;
 };
 
+type Tone = "good" | "warn" | "bad" | "neutral";
+
 type SnapshotState = {
   health?: ProxyEnvelope<HealthPayload>;
   readiness?: ProxyEnvelope<ReadinessPayload>;
   metrics?: ProxyEnvelope<MetricsPayload>;
+  paperStrategy?: ProxyEnvelope<PaperStrategyPayload>;
   lastUpdated?: string;
   loading: boolean;
   error?: string;
@@ -44,15 +54,17 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
   async function loadSnapshot() {
     setSnapshot((current) => ({ ...current, loading: true, error: undefined }));
     try {
-      const [health, readiness, metrics] = await Promise.all([
+      const [health, readiness, metrics, paperStrategy] = await Promise.all([
         fetchEnvelope<HealthPayload>("/api/backend/health"),
         fetchEnvelope<ReadinessPayload>("/api/backend/ready"),
         fetchEnvelope<MetricsPayload>("/api/backend/metrics"),
+        fetchEnvelope<PaperStrategyPayload>("/api/backend/paper-strategy"),
       ]);
       setSnapshot({
         health,
         readiness,
         metrics,
+        paperStrategy,
         lastUpdated: new Date().toLocaleString(),
         loading: false,
       });
@@ -74,9 +86,13 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
   const healthOk = snapshot.health?.ok && snapshot.health.data?.ok;
   const readyOk = snapshot.readiness?.ok && snapshot.readiness.data?.ok;
   const readinessChecks = snapshot.readiness?.data?.checks || [];
-  const failedChecks = readinessChecks.filter((check) => !check.ok);
   const metrics = snapshot.metrics?.data;
   const killSwitchState = metrics?.kill_switch_state || "unknown";
+  const paperStrategy = snapshot.paperStrategy?.data;
+  const paperStrategies = paperStrategy?.strategies || [];
+  const paperExecution = paperStrategy?.paper_execution || undefined;
+  const primaryPaperStrategy = paperStrategies[0];
+  const paperStrategyOk = Boolean(snapshot.paperStrategy?.ok && paperStrategy?.ok);
 
   const posture = useMemo(
     () => [
@@ -102,6 +118,13 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
         icon: Shield,
       },
       {
+        label: "Paper Strategy",
+        value: paperStrategyOk ? "Current" : titleCase(paperStrategy?.status || "unknown"),
+        tone: paperStrategyOk ? "good" : paperStrategy?.status === "missing" ? "warn" : "bad",
+        detail: paperStrategySummary(paperStrategy, snapshot.paperStrategy?.error),
+        icon: Radar,
+      },
+      {
         label: "Controls",
         value: controlActionsEnabled ? "Enabled" : "Read-only",
         tone: controlActionsEnabled ? "warn" : "neutral",
@@ -113,9 +136,12 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
       controlActionsEnabled,
       healthOk,
       killSwitchState,
+      paperStrategy,
+      paperStrategyOk,
       readinessChecks,
       readyOk,
       snapshot.health,
+      snapshot.paperStrategy?.error,
       snapshot.readiness?.error,
     ],
   );
@@ -256,6 +282,62 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
         </aside>
       </section>
 
+      <section className="panel strategy-panel" aria-labelledby="paper-strategy-title">
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">Paper Strategy</p>
+            <h2 id="paper-strategy-title">Current Paper Cycle</h2>
+          </div>
+          <span className="timestamp">{formatTimestamp(paperStrategy?.timestamp || paperStrategy?.file_updated_at)}</span>
+        </div>
+        {paperStrategy?.message ? <p className={`alert ${paperStrategy.ok ? "neutral" : "warn"}`}>{paperStrategy.message}</p> : null}
+        <div className="strategy-summary-grid">
+          <StrategyStat label="Mode" value={paperStrategy?.mode || "paper"} tone={paperStrategyOk ? "good" : "neutral"} />
+          <StrategyStat label="Execution" value={formatName(paperExecution?.status || "unknown")} tone={executionTone(paperExecution?.status)} />
+          <StrategyStat label="Selected" value={countSelected(paperStrategies).toString()} tone={countSelected(paperStrategies) ? "good" : "neutral"} />
+          <StrategyStat label="Risk Blocks" value={countRiskBlocks(paperStrategies, paperExecution).toString()} tone={countRiskBlocks(paperStrategies, paperExecution) ? "warn" : "good"} />
+        </div>
+        <div className="execution-strip">
+          <span>Entries {paperExecution?.enabled ? "enabled" : "disabled"}</span>
+          <span>Runtime gate {paperExecution?.runtime_gate_passed ? "passed" : "not passed"}</span>
+          <span>Market {paperExecution?.market_open ? "open" : "closed or unknown"}</span>
+          <span>Order type {paperExecution?.order_type || "unknown"}</span>
+          <span>Notional {formatCurrency(paperExecution?.notional_usd)}</span>
+        </div>
+        <div className="table-shell strategy-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Strategy</th>
+                <th>Mode</th>
+                <th>Regime</th>
+                <th>Selected</th>
+                <th>Orders</th>
+                <th>Blocks</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paperStrategies.length ? (
+                paperStrategies.map((strategy) => (
+                  <tr key={`${strategy.strategy_name}-${strategy.mode}`}>
+                    <td>{formatName(strategy.strategy_name)}</td>
+                    <td>{formatName(strategy.mode)}</td>
+                    <td>{formatRegime(strategy)}</td>
+                    <td>{formatSelected(strategy)}</td>
+                    <td>{formatOrders(strategy)}</td>
+                    <td>{formatBlocks(strategy.risk_blocks, strategy.warnings)}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6}>{snapshot.paperStrategy?.error || paperStrategy?.message || "Paper strategy status has not loaded."}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <section className="metrics-grid" aria-label="Runtime metrics">
         <Metric label="Mode" value={metrics?.trading_mode || "unknown"} />
         <Metric label="Uptime" value={formatDuration(metrics?.uptime_seconds || snapshot.health?.data?.uptime_seconds)} />
@@ -264,7 +346,7 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
         <Metric label="Open Positions" value={formatNullable(metrics?.open_positions)} />
         <Metric label="Open Orders" value={formatNullable(metrics?.open_orders)} />
         <Metric label="Risk Rejects" value={formatNullable(metrics?.risk_rejects)} />
-        <Metric label="Strategy" value={metrics?.active_strategy || "none"} />
+        <Metric label="Strategy" value={metrics?.active_strategy || primaryPaperStrategy?.strategy_name || "none"} />
       </section>
     </main>
   );
@@ -331,6 +413,15 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   );
 }
 
+function StrategyStat({ label, value, tone }: { label: string; value: string; tone: Tone }) {
+  return (
+    <article className="strategy-stat">
+      <span>{label}</span>
+      <strong className={tone}>{value}</strong>
+    </article>
+  );
+}
+
 async function fetchEnvelope<T>(path: string, init?: RequestInit): Promise<ProxyEnvelope<T>> {
   const response = await fetch(path, { cache: "no-store", ...init });
   const payload = (await response.json().catch(() => null)) as ProxyEnvelope<T> | null;
@@ -359,6 +450,21 @@ function readinessSummary(
   return `${failed.length} blocked: ${formatName(failed[0].name)}`;
 }
 
+function paperStrategySummary(payload: PaperStrategyPayload | undefined, fallbackError?: string) {
+  if (fallbackError) {
+    return fallbackError;
+  }
+  if (!payload) {
+    return "Waiting for strategy status";
+  }
+  if (!payload.ok) {
+    return payload.message || "No current paper cycle";
+  }
+  const selected = countSelected(payload.strategies || []);
+  const when = formatTimestamp(payload.timestamp || payload.file_updated_at);
+  return `${selected} selections from ${when}`;
+}
+
 function formatDetail(value: string) {
   try {
     const parsed = JSON.parse(value) as { message?: string };
@@ -375,6 +481,17 @@ function titleCase(value: string) {
   return value.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function formatTimestamp(value: string | null | undefined) {
+  if (!value) {
+    return "Not refreshed";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleString();
+}
+
 function formatNullable(value: number | null | undefined) {
   return value === null || value === undefined ? "unknown" : value.toString();
 }
@@ -386,4 +503,70 @@ function formatDuration(value: number | undefined) {
   const minutes = Math.floor(value / 60);
   const seconds = Math.floor(value % 60);
   return `${minutes}m ${seconds}s`;
+}
+
+function formatCurrency(value: number | undefined) {
+  return value === undefined ? "unknown" : `$${value.toFixed(2)}`;
+}
+
+function executionTone(status: string | undefined): Tone {
+  if (!status || status === "disabled" || status === "no_entries") {
+    return "neutral";
+  }
+  if (status === "complete" || status === "submitted") {
+    return "good";
+  }
+  if (status.startsWith("blocked")) {
+    return "warn";
+  }
+  return "bad";
+}
+
+function countSelected(strategies: PaperStrategySnapshot[]) {
+  return strategies.reduce((total, strategy) => total + (strategy.selected?.length || 0), 0);
+}
+
+function countRiskBlocks(strategies: PaperStrategySnapshot[], execution?: PaperStrategyPayload["paper_execution"]) {
+  const strategyBlocks = strategies.reduce((total, strategy) => total + (strategy.risk_blocks?.length || 0), 0);
+  return strategyBlocks + (execution?.runtime_gate_blocks?.length || 0);
+}
+
+function formatRegime(strategy: PaperStrategySnapshot) {
+  const regime = strategy.regime || {};
+  if (typeof regime.risk_on === "boolean") {
+    return regime.risk_on ? "Risk on" : "Risk off";
+  }
+  const entries = Object.entries(regime).slice(0, 2);
+  return entries.length ? entries.map(([key, value]) => `${formatName(key)}: ${String(value)}`).join(", ") : "unknown";
+}
+
+function formatSelected(strategy: PaperStrategySnapshot) {
+  const selected = strategy.selected || [];
+  if (!selected.length) {
+    return "none";
+  }
+  return selected.map((item) => `${item.symbol} ${formatPercent(item.target_weight)}`).join(", ");
+}
+
+function formatOrders(strategy: PaperStrategySnapshot) {
+  const orders = strategy.orders || [];
+  if (!orders.length) {
+    return "none";
+  }
+  return orders
+    .slice(0, 3)
+    .map((order) => `${order.side.toUpperCase()} ${order.symbol}${order.risk_approved ? " approved" : ""}`)
+    .join(", ");
+}
+
+function formatBlocks(blocks?: string[], warnings?: string[]) {
+  const values = [...(blocks || []), ...(warnings || [])];
+  return values.length ? values.map(formatName).join(", ") : "none";
+}
+
+function formatPercent(value: number | null | undefined) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  return `${(value * 100).toFixed(1)}%`;
 }

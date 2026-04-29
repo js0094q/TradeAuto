@@ -11,9 +11,9 @@ import { hasValidSession } from "@/lib/session";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const GET_ALLOWLIST = new Set(["health", "ready", "metrics"]);
+const GET_ALLOWLIST = new Set(["health", "ready", "metrics", "paper-strategy"]);
 const POST_ALLOWLIST = new Set(["admin/kill", "admin/resume"]);
-const ADMIN_REQUIRED = new Set(["ready", "metrics", "admin/kill", "admin/resume"]);
+const ADMIN_REQUIRED = new Set(["ready", "metrics", "paper-strategy", "admin/kill", "admin/resume"]);
 
 type RouteContext = {
   params: Promise<{ path: string[] }>;
