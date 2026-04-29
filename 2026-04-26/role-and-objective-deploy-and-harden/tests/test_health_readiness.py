@@ -48,12 +48,15 @@ class HealthReadinessTests(unittest.TestCase):
         self.assertTrue(sdk_check["ok"])
         self.assertEqual(sdk_check["detail"], "skipped for paper CLI mode")
 
-    def test_paper_strategy_status_reports_missing_state(self) -> None:
+    def test_paper_strategy_status_bootstraps_state_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             settings = _paper_settings(tmpdir)
             payload = paper_strategy_status_payload(settings)
+            self.assertTrue((Path(tmpdir) / "state" / "paper_strategy_status.json").exists())
+            self.assertTrue((Path(tmpdir) / "state" / "paper_entry_orders.json").exists())
+            self.assertTrue((Path(tmpdir) / "state" / "kill_switch.enabled").exists())
         self.assertFalse(payload["ok"])
-        self.assertEqual(payload["status"], "missing")
+        self.assertEqual(payload["status"], "available")
         self.assertEqual(payload["strategies"], [])
 
     def test_paper_strategy_status_updates_metrics_context(self) -> None:

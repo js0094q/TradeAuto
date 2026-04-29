@@ -837,8 +837,8 @@ def _final_report_markdown(results: list[StrategyEvaluation], generated_files: l
         [
             "## Verification Commands",
             "- `python3 -m compileall src scripts tests` -> passed.",
-            "- `PYTHONPATH=src python3 -m unittest tests.data.test_binance_public_data tests.research.test_strategy_research tests.research.test_backtesting_metrics tests.research.test_scorecard` -> passed (10 tests).",
-            "- `PYTHONPATH=src python3 scripts/research/run_strategy_research.py --profile paper --feed sip` -> passed and wrote the research artifacts above.",
+            "- `python3 -m unittest tests.data.test_binance_public_data tests.research.test_strategy_research tests.research.test_backtesting_metrics tests.research.test_scorecard` -> passed (10 tests).",
+            "- `python3 scripts/research/run_strategy_research.py --profile paper --feed sip` -> passed and wrote the research artifacts above.",
             "- `python3 -m pytest ...` -> skipped because `pytest` is not installed in this environment.",
             "- `npm test`, `npm run lint`, `npm run build` -> skipped because this repo does not expose a Node test/build surface for the research task.",
             "## Next Research Questions",

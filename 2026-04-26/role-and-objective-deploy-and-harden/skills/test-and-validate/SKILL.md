@@ -13,7 +13,7 @@ Run these from the repo root when Python is available:
 
 ```bash
 python3 -m compileall src scripts tests
-PYTHONPATH=src python3 -m unittest discover -s tests
+python3 -m unittest discover -s tests
 python3 scripts/validate_env.py --env-file .env.test.example --mode paper
 ```
 

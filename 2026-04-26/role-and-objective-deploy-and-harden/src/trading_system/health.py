@@ -12,6 +12,7 @@ from typing import Any
 from trading_system.broker.alpaca_sdk import AlpacaBroker
 from trading_system.config import Settings, validate_settings
 from trading_system.kill_switch import KillSwitch
+from trading_system.runtime_state import ensure_runtime_state
 from trading_system.storage.events import logs_are_writable
 from trading_system.strategy.registry import default_registry
 
@@ -35,8 +36,21 @@ def readiness_checks(settings: Settings, *, external: bool = True) -> list[Check
     validation = validate_settings(settings, mode=settings.trading_mode)
     checks.append(Check("startup_validation", validation.ok, "; ".join(validation.errors) or "ok"))
 
+    shared = _shared_dir(settings)
+    log_dir = Path(settings.raw.get("LOG_DIR", str(shared / "logs")))
     try:
-        logs_are_writable(Path(settings.raw.get("LOG_DIR", "/opt/trading-system/shared/logs")))
+        ensure_runtime_state(
+            shared_dir=shared,
+            log_dir=log_dir,
+            kill_switch_file=settings.kill_switch_file,
+            mode=settings.trading_mode or "paper",
+        )
+        checks.append(Check("runtime_state_bootstrap", True, "ok"))
+    except OSError as exc:
+        checks.append(Check("runtime_state_bootstrap", False, str(exc)))
+
+    try:
+        logs_are_writable(log_dir)
         checks.append(Check("logs_writable", True, "ok"))
     except OSError as exc:
         checks.append(Check("logs_writable", False, str(exc)))
@@ -153,12 +167,28 @@ def metrics_payload(settings: Settings) -> dict[str, Any]:
 
 
 def paper_strategy_status_payload(settings: Settings) -> dict[str, Any]:
-    status_path = _shared_dir(settings) / "state" / "paper_strategy_status.json"
+    shared = _shared_dir(settings)
+    log_dir = Path(settings.raw.get("LOG_DIR", str(shared / "logs")))
+    bootstrap_error = None
+    try:
+        ensure_runtime_state(
+            shared_dir=shared,
+            log_dir=log_dir,
+            kill_switch_file=settings.kill_switch_file,
+            mode=settings.trading_mode or "paper",
+        )
+    except OSError as exc:
+        bootstrap_error = str(exc)
+
+    status_path = shared / "state" / "paper_strategy_status.json"
     if not status_path.exists():
+        message = "paper strategy status has not been written yet"
+        if bootstrap_error:
+            message = f"{message}; runtime bootstrap failed: {bootstrap_error}"
         return {
             "ok": False,
             "status": "missing",
-            "message": "paper strategy status has not been written yet",
+            "message": message,
             "mode": "paper",
             "strategies": [],
             "paper_execution": None,
@@ -206,7 +236,7 @@ def paper_strategy_status_payload(settings: Settings) -> dict[str, Any]:
 
 
 def _shared_dir(settings: Settings) -> Path:
-    return Path(settings.raw.get("TRADING_SYSTEM_SHARED_DIR", "/opt/trading-system/shared"))
+    return Path(settings.raw.get("TRADING_SYSTEM_SHARED_DIR", ".runtime/shared"))
 
 
 def _tail_lines(path: Path, *, max_lines: int = 300) -> list[str]:

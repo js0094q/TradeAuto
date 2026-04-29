@@ -58,7 +58,7 @@ The paper runner remains paper-only, requires limit orders, and still passes all
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install -e '.[dev]'
-PYTHONPATH=src python3 -m unittest discover -s tests
+python3 -m unittest discover -s tests
 ```
 
 ## Njalla VPS Deployment

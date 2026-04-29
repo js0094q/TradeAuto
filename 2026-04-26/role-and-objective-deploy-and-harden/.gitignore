@@ -33,6 +33,7 @@ src/trading_system/data/**/*.py[cod]
 tests/data/**/__pycache__/
 tests/data/**/*.py[cod]
 state/
+.runtime/
 backups/
 *.log
 memory/events/*.jsonl

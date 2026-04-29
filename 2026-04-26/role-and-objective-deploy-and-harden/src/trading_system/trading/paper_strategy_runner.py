@@ -16,6 +16,7 @@ from trading_system.config import PAPER_BASE_URL, Settings, load_settings, parse
 from trading_system.data.alpaca_provider import AlpacaDataProvider, CliRunner
 from trading_system.data.provider import CachedMarketDataProvider, DataCache, MarketDataProviderError
 from trading_system.kill_switch import KillSwitch
+from trading_system.runtime_state import ensure_runtime_state
 from trading_system.storage.events import append_jsonl
 from trading_system.strategies.cross_market_high_beta_confirmation import CrossMarketHighBetaConfirmationV1
 from trading_system.strategies.equity_etf_trend_regime import EquityEtfTrendRegimeV1
@@ -32,7 +33,7 @@ DEFAULT_PAPER_ENTRY_LIMIT_BUFFER_BPS = 10.0
 
 
 def _shared_dir(settings: Settings) -> Path:
-    value = settings.raw.get("TRADING_SYSTEM_SHARED_DIR", "/opt/trading-system/shared")
+    value = settings.raw.get("TRADING_SYSTEM_SHARED_DIR", ".runtime/shared")
     return Path(value)
 
 
@@ -574,7 +575,12 @@ def run_once(settings: Settings) -> dict[str, Any]:
         raise RuntimeError("paper validation failed: " + "; ".join(validation.errors))
 
     shared = _shared_dir(settings)
-    shared.mkdir(parents=True, exist_ok=True)
+    ensure_runtime_state(
+        shared_dir=shared,
+        log_dir=Path(settings.raw.get("LOG_DIR", str(shared / "logs"))),
+        kill_switch_file=settings.kill_switch_file,
+        mode="paper",
+    )
     kill_switch_enabled = True
     try:
         kill_switch_enabled = KillSwitch(settings.kill_switch_file).is_enabled()

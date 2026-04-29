@@ -10,6 +10,17 @@ LIVE_BASE_URL = "https://api.alpaca.markets"
 PAPER_BASE_URL = "https://paper-api.alpaca.markets"
 
 
+def default_shared_dir() -> Path:
+    explicit = os.environ.get("TRADING_SYSTEM_SHARED_DIR", "").strip()
+    if explicit:
+        return Path(explicit)
+    vps_path = Path("/opt/trading-system/shared")
+    if vps_path.exists():
+        return vps_path
+    project_root = Path(__file__).resolve().parents[2]
+    return project_root / ".runtime" / "shared"
+
+
 def load_env_file(path: str | Path | None) -> dict[str, str]:
     if path is None:
         return {}
@@ -127,58 +138,85 @@ def _split_csv(value: str) -> tuple[str, ...]:
 
 
 def build_settings(values: Mapping[str, str]) -> Settings:
-    allowed_chat_ids = values.get("TELEGRAM_ALLOWED_CHAT_IDS")
+    normalized_values = dict(values)
+    shared_dir = normalized_values.get("TRADING_SYSTEM_SHARED_DIR", "").strip()
+    if not shared_dir:
+        shared_dir = str(default_shared_dir())
+        normalized_values["TRADING_SYSTEM_SHARED_DIR"] = shared_dir
+
+    log_dir = normalized_values.get("LOG_DIR", "").strip()
+    if not log_dir:
+        log_dir = str(Path(shared_dir) / "logs")
+        normalized_values["LOG_DIR"] = log_dir
+
+    kill_switch_file = normalized_values.get("KILL_SWITCH_FILE", "").strip()
+    if not kill_switch_file:
+        kill_switch_file = str(Path(shared_dir) / "state" / "kill_switch.enabled")
+        normalized_values["KILL_SWITCH_FILE"] = kill_switch_file
+
+    allowed_chat_ids = normalized_values.get("TELEGRAM_ALLOWED_CHAT_IDS")
     if allowed_chat_ids is None:
-        allowed_chat_ids = values.get("CHAT_IDS", "")
-    admin_chat_ids = values.get("TELEGRAM_ADMIN_CHAT_IDS")
+        allowed_chat_ids = normalized_values.get("CHAT_IDS", "")
+    admin_chat_ids = normalized_values.get("TELEGRAM_ADMIN_CHAT_IDS")
     if admin_chat_ids is None:
-        admin_chat_ids = values.get("ADMIN_CHAT_IDS", "")
+        admin_chat_ids = normalized_values.get("ADMIN_CHAT_IDS", "")
 
     risk = RiskLimits(
-        max_trades_per_day=parse_int("MAX_TRADES_PER_DAY", values),
-        max_open_positions=parse_int("MAX_OPEN_POSITIONS", values),
-        max_order_notional_usd=parse_float("MAX_ORDER_NOTIONAL_USD", values),
-        max_position_notional_usd=parse_float("MAX_POSITION_NOTIONAL_USD", values),
-        max_daily_loss_usd=parse_float("MAX_DAILY_LOSS_USD", values),
-        max_total_drawdown_usd=parse_float("MAX_TOTAL_DRAWDOWN_USD", values),
-        max_account_risk_pct=parse_float("MAX_ACCOUNT_RISK_PCT", values),
-        require_limit_orders=parse_bool(values.get("REQUIRE_LIMIT_ORDERS", "true")),
-        allow_market_orders=parse_bool(values.get("ALLOW_MARKET_ORDERS", "false")),
-        allow_short_selling=parse_bool(values.get("ALLOW_SHORT_SELLING", "false")),
-        allow_options_trading=parse_bool(values.get("ALLOW_OPTIONS_TRADING", "false")),
-        allow_crypto_trading=parse_bool(values.get("ALLOW_CRYPTO_TRADING", "false")),
+        max_trades_per_day=parse_int("MAX_TRADES_PER_DAY", normalized_values),
+        max_open_positions=parse_int("MAX_OPEN_POSITIONS", normalized_values),
+        max_order_notional_usd=parse_float("MAX_ORDER_NOTIONAL_USD", normalized_values),
+        max_position_notional_usd=parse_float("MAX_POSITION_NOTIONAL_USD", normalized_values),
+        max_daily_loss_usd=parse_float("MAX_DAILY_LOSS_USD", normalized_values),
+        max_total_drawdown_usd=parse_float("MAX_TOTAL_DRAWDOWN_USD", normalized_values),
+        max_account_risk_pct=parse_float("MAX_ACCOUNT_RISK_PCT", normalized_values),
+        require_limit_orders=parse_bool(normalized_values.get("REQUIRE_LIMIT_ORDERS", "true")),
+        allow_market_orders=parse_bool(normalized_values.get("ALLOW_MARKET_ORDERS", "false")),
+        allow_short_selling=parse_bool(normalized_values.get("ALLOW_SHORT_SELLING", "false")),
+        allow_options_trading=parse_bool(normalized_values.get("ALLOW_OPTIONS_TRADING", "false")),
+        allow_crypto_trading=parse_bool(normalized_values.get("ALLOW_CRYPTO_TRADING", "false")),
     )
     return Settings(
-        app_env=values.get("APP_ENV", "").strip(),
-        trading_mode=values.get("TRADING_MODE", "").strip(),
-        live_trading_enabled=parse_bool(values.get("LIVE_TRADING_ENABLED", "false")),
-        host=values.get("HOST", "127.0.0.1").strip(),
-        port=int(values.get("PORT", "8000")),
-        postgres_url=values.get("POSTGRES_URL", "").strip(),
-        redis_url=values.get("REDIS_URL", "").strip(),
-        alpaca_api_key=values.get("ALPACA_API_KEY", "").strip(),
-        alpaca_api_secret=values.get("ALPACA_API_SECRET", "").strip(),
-        alpaca_base_url=values.get("ALPACA_BASE_URL", "").strip(),
-        alpaca_data_feed=values.get("ALPACA_DATA_FEED", "iex").strip(),
-        alpaca_cli_enabled=parse_bool(values.get("ALPACA_CLI_ENABLED", "false")),
-        alpaca_cli_profile=values.get("ALPACA_CLI_PROFILE", "").strip(),
-        telegram_bot_token=values.get("TELEGRAM_BOT_TOKEN", "").strip(),
+        app_env=normalized_values.get("APP_ENV", "").strip(),
+        trading_mode=normalized_values.get("TRADING_MODE", "").strip(),
+        live_trading_enabled=parse_bool(normalized_values.get("LIVE_TRADING_ENABLED", "false")),
+        host=normalized_values.get("HOST", "127.0.0.1").strip(),
+        port=int(normalized_values.get("PORT", "8000")),
+        postgres_url=normalized_values.get("POSTGRES_URL", "").strip(),
+        redis_url=normalized_values.get("REDIS_URL", "").strip(),
+        alpaca_api_key=normalized_values.get("ALPACA_API_KEY", "").strip(),
+        alpaca_api_secret=normalized_values.get("ALPACA_API_SECRET", "").strip(),
+        alpaca_base_url=normalized_values.get("ALPACA_BASE_URL", "").strip(),
+        alpaca_data_feed=normalized_values.get("ALPACA_DATA_FEED", "iex").strip(),
+        alpaca_cli_enabled=parse_bool(normalized_values.get("ALPACA_CLI_ENABLED", "false")),
+        alpaca_cli_profile=normalized_values.get("ALPACA_CLI_PROFILE", "").strip(),
+        telegram_bot_token=normalized_values.get("TELEGRAM_BOT_TOKEN", "").strip(),
         telegram_allowed_chat_ids=_split_csv(allowed_chat_ids),
         telegram_admin_chat_ids=_split_csv(admin_chat_ids),
-        jwt_signing_key=values.get("JWT_SIGNING_KEY", "").strip(),
-        admin_token=values.get("ADMIN_TOKEN", "").strip(),
-        dashboard_token=values.get("DASHBOARD_TOKEN", "").strip(),
-        log_level=values.get("LOG_LEVEL", "INFO").strip(),
-        kill_switch_enabled=parse_bool(values.get("KILL_SWITCH_ENABLED", "false")),
-        kill_switch_file=Path(values.get("KILL_SWITCH_FILE", "state/kill_switch.enabled")),
-        health_checks_enabled=parse_bool(values.get("HEALTH_CHECKS_ENABLED", "true")),
+        jwt_signing_key=normalized_values.get("JWT_SIGNING_KEY", "").strip(),
+        admin_token=normalized_values.get("ADMIN_TOKEN", "").strip(),
+        dashboard_token=normalized_values.get("DASHBOARD_TOKEN", "").strip(),
+        log_level=normalized_values.get("LOG_LEVEL", "INFO").strip(),
+        kill_switch_enabled=parse_bool(normalized_values.get("KILL_SWITCH_ENABLED", "false")),
+        kill_switch_file=Path(kill_switch_file),
+        health_checks_enabled=parse_bool(normalized_values.get("HEALTH_CHECKS_ENABLED", "true")),
         risk=risk,
-        raw=dict(values),
+        raw=normalized_values,
     )
 
 
 def load_settings(env_file: str | Path | None = None) -> Settings:
-    loaded = load_env_file(env_file)
+    resolved_env_file = env_file
+    if resolved_env_file is None:
+        override = os.environ.get("TRADING_SYSTEM_ENV_FILE", "").strip()
+        if override:
+            resolved_env_file = override
+        elif not os.environ.get("TRADING_MODE", "").strip():
+            for candidate in (".env.runtime", ".env.test", ".env.paper", ".env.test.example"):
+                if Path(candidate).exists():
+                    resolved_env_file = candidate
+                    break
+
+    loaded = load_env_file(resolved_env_file)
     merged = dict(os.environ)
     merged.update(loaded)
     return build_settings(merged)

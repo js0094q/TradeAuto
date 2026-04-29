@@ -40,7 +40,7 @@ Before a live deploy, verify locally and then on-host:
 
 ```bash
 python3 -m compileall src scripts tests
-PYTHONPATH=src python3 -m unittest discover -s tests
+python3 -m unittest discover -s tests
 python3 scripts/validate_env.py --env-file .env.test.example --mode paper
 python3 scripts/validate_env.py --env-file /opt/trading-system/shared/.env.live --mode live
 ./scripts/alpaca_doctor.sh live
