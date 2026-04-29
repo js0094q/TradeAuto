@@ -127,6 +127,13 @@ def _split_csv(value: str) -> tuple[str, ...]:
 
 
 def build_settings(values: Mapping[str, str]) -> Settings:
+    allowed_chat_ids = values.get("TELEGRAM_ALLOWED_CHAT_IDS")
+    if allowed_chat_ids is None:
+        allowed_chat_ids = values.get("CHAT_IDS", "")
+    admin_chat_ids = values.get("TELEGRAM_ADMIN_CHAT_IDS")
+    if admin_chat_ids is None:
+        admin_chat_ids = values.get("ADMIN_CHAT_IDS", "")
+
     risk = RiskLimits(
         max_trades_per_day=parse_int("MAX_TRADES_PER_DAY", values),
         max_open_positions=parse_int("MAX_OPEN_POSITIONS", values),
@@ -156,8 +163,8 @@ def build_settings(values: Mapping[str, str]) -> Settings:
         alpaca_cli_enabled=parse_bool(values.get("ALPACA_CLI_ENABLED", "false")),
         alpaca_cli_profile=values.get("ALPACA_CLI_PROFILE", "").strip(),
         telegram_bot_token=values.get("TELEGRAM_BOT_TOKEN", "").strip(),
-        telegram_allowed_chat_ids=_split_csv(values.get("TELEGRAM_ALLOWED_CHAT_IDS", "")),
-        telegram_admin_chat_ids=_split_csv(values.get("TELEGRAM_ADMIN_CHAT_IDS", "")),
+        telegram_allowed_chat_ids=_split_csv(allowed_chat_ids),
+        telegram_admin_chat_ids=_split_csv(admin_chat_ids),
         jwt_signing_key=values.get("JWT_SIGNING_KEY", "").strip(),
         admin_token=values.get("ADMIN_TOKEN", "").strip(),
         dashboard_token=values.get("DASHBOARD_TOKEN", "").strip(),
@@ -246,4 +253,3 @@ def validate_settings(settings: Settings, *, mode: str | None = None) -> Validat
         errors.append("paper mode must use https://paper-api.alpaca.markets")
 
     return ValidationResult(ok=not errors, errors=tuple(errors), warnings=tuple(warnings))
-

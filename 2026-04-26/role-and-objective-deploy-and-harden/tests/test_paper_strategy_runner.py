@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from tests.strategies.helpers import bars_from_prices, default_quotes, trend_prices
 from trading_system.config import build_settings
+from trading_system.trading.order_intents import OrderIntent
 from trading_system.trading import paper_strategy_runner
 
 
@@ -23,39 +24,40 @@ class FakeProvider:
         return {symbol: bars_from_prices(symbol, trend_prices(drift=1.0, base=1_000.0)) for symbol in symbols}
 
 
-def settings(tmpdir: str) -> object:
-    return build_settings(
-        {
-            "APP_ENV": "paper",
-            "TRADING_MODE": "paper",
-            "LIVE_TRADING_ENABLED": "false",
-            "HOST": "127.0.0.1",
-            "POSTGRES_URL": "postgresql://trader_app:test@127.0.0.1:5432/trading_system_paper",
-            "REDIS_URL": "redis://127.0.0.1:6379/1",
-            "ALPACA_API_KEY": "paper",
-            "ALPACA_API_SECRET": "paper",
-            "ALPACA_BASE_URL": "https://paper-api.alpaca.markets",
-            "ALPACA_CLI_PROFILE": "paper",
-            "TELEGRAM_BOT_TOKEN": "token",
-            "TELEGRAM_ALLOWED_CHAT_IDS": "123",
-            "TELEGRAM_ADMIN_CHAT_IDS": "123",
-            "JWT_SIGNING_KEY": "jwt",
-            "ADMIN_TOKEN": "admin",
-            "DASHBOARD_TOKEN": "dashboard",
-            "LOG_DIR": str(Path(tmpdir) / "logs"),
-            "KILL_SWITCH_FILE": str(Path(tmpdir) / "state" / "kill_switch.enabled"),
-            "TRADING_SYSTEM_SHARED_DIR": tmpdir,
-            "MAX_TRADES_PER_DAY": "3",
-            "MAX_OPEN_POSITIONS": "3",
-            "MAX_ORDER_NOTIONAL_USD": "25",
-            "MAX_POSITION_NOTIONAL_USD": "50",
-            "MAX_DAILY_LOSS_USD": "25",
-            "MAX_TOTAL_DRAWDOWN_USD": "100",
-            "MAX_ACCOUNT_RISK_PCT": "1.0",
-            "REQUIRE_LIMIT_ORDERS": "true",
-            "HEALTH_CHECKS_ENABLED": "true",
-        }
-    )
+def settings(tmpdir: str, overrides: dict[str, str] | None = None) -> object:
+    values = {
+        "APP_ENV": "paper",
+        "TRADING_MODE": "paper",
+        "LIVE_TRADING_ENABLED": "false",
+        "HOST": "127.0.0.1",
+        "POSTGRES_URL": "postgresql://trader_app:test@127.0.0.1:5432/trading_system_paper",
+        "REDIS_URL": "redis://127.0.0.1:6379/1",
+        "ALPACA_API_KEY": "paper",
+        "ALPACA_API_SECRET": "paper",
+        "ALPACA_BASE_URL": "https://paper-api.alpaca.markets",
+        "ALPACA_CLI_PROFILE": "paper",
+        "TELEGRAM_BOT_TOKEN": "token",
+        "TELEGRAM_ALLOWED_CHAT_IDS": "123",
+        "TELEGRAM_ADMIN_CHAT_IDS": "123",
+        "JWT_SIGNING_KEY": "jwt",
+        "ADMIN_TOKEN": "admin",
+        "DASHBOARD_TOKEN": "dashboard",
+        "LOG_DIR": str(Path(tmpdir) / "logs"),
+        "KILL_SWITCH_FILE": str(Path(tmpdir) / "state" / "kill_switch.enabled"),
+        "TRADING_SYSTEM_SHARED_DIR": tmpdir,
+        "MAX_TRADES_PER_DAY": "3",
+        "MAX_OPEN_POSITIONS": "3",
+        "MAX_ORDER_NOTIONAL_USD": "25",
+        "MAX_POSITION_NOTIONAL_USD": "50",
+        "MAX_DAILY_LOSS_USD": "25",
+        "MAX_TOTAL_DRAWDOWN_USD": "100",
+        "MAX_ACCOUNT_RISK_PCT": "1.0",
+        "REQUIRE_LIMIT_ORDERS": "true",
+        "HEALTH_CHECKS_ENABLED": "true",
+    }
+    if overrides:
+        values.update(overrides)
+    return build_settings(values)
 
 
 class PaperStrategyRunnerTests(unittest.TestCase):
@@ -128,6 +130,45 @@ class PaperStrategyRunnerTests(unittest.TestCase):
 
             self.assertEqual(payload["paper_execution"]["status"], "blocked_market_closed")
             broker_call.assert_not_called()
+
+    def test_crypto_entries_can_run_when_equity_market_is_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, "state").mkdir()
+            Path(tmpdir, "state", "kill_switch.enabled").write_text("disabled\n", encoding="utf-8")
+            paper_settings = settings(
+                tmpdir,
+                overrides={
+                    "ALLOW_CRYPTO_TRADING": "true",
+                    "PAPER_ENTRY_EXECUTION_ENABLED": "true",
+                    "PAPER_ENTRY_NOTIONAL_USD": "1.00",
+                    "PAPER_ENTRY_ORDER_TYPE": "limit",
+                },
+            )
+            selected_orders = (
+                OrderIntent(
+                    strategy_name="crypto_trend_breakout_v1",
+                    symbol="BTC/USD",
+                    side="buy",
+                    target_weight=0.25,
+                    quantity=None,
+                    notional=None,
+                    reason="test",
+                    mode="paper",
+                ),
+            )
+
+            with patch.object(paper_strategy_runner.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")) as broker_call:
+                execution = paper_strategy_runner._execute_paper_entries(
+                    paper_settings,
+                    shared=Path(tmpdir),
+                    selected_orders=selected_orders,
+                    quotes={"BTC/USD": {"ask": 100.0}},
+                    market_clock={"is_open": False},
+                )
+
+            self.assertEqual(execution["status"], "complete")
+            self.assertTrue(any(order["status"] == "submitted" for order in execution["orders"]))
+            broker_call.assert_called_once()
 
 
 if __name__ == "__main__":

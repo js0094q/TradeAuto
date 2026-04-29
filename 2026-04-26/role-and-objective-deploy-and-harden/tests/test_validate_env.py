@@ -74,7 +74,18 @@ class ValidateEnvTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn("LIVE_TRADING_ENABLED must be false outside live mode", result.errors)
 
+    def test_live_accepts_legacy_chat_id_aliases(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            kill_file = Path(directory) / "kill_switch.enabled"
+            kill_file.write_text("disabled\n", encoding="utf-8")
+            values = dict(BASE_ENV, KILL_SWITCH_FILE=str(kill_file))
+            values.pop("TELEGRAM_ALLOWED_CHAT_IDS", None)
+            values.pop("TELEGRAM_ADMIN_CHAT_IDS", None)
+            values["CHAT_IDS"] = "100,200"
+            values["ADMIN_CHAT_IDS"] = "100"
+            result = validate_settings(build_settings(values), mode="live")
+        self.assertTrue(result.ok, result.errors)
+
 
 if __name__ == "__main__":
     unittest.main()
-

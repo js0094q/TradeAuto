@@ -83,7 +83,7 @@ class RiskEngine:
 
         if state.kill_switch_enabled:
             reasons.append("kill switch is enabled")
-        if not account.market_is_open:
+        if not account.market_is_open and order.asset_class != "crypto":
             reasons.append("market is not open")
         if not market.asset_tradable:
             reasons.append("asset is not tradable")

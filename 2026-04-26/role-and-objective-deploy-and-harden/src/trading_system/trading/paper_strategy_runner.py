@@ -136,6 +136,15 @@ def _client_order_id(strategy_name: str, symbol: str, trade_date: str) -> str:
     return f"{prefix}-{trade_date}-{symbol}-paper-entry"
 
 
+def _asset_class_for_symbol(symbol: str) -> str:
+    normalized = symbol.upper().replace("-", "/")
+    if "/" in normalized:
+        _, quote = normalized.split("/", 1)
+        if quote in {"USD", "USDT", "USDC"}:
+            return "crypto"
+    return "equity"
+
+
 def _execute_paper_entries(
     settings: Settings,
     *,
@@ -165,9 +174,6 @@ def _execute_paper_entries(
     if not gate_ok:
         payload["status"] = "blocked_by_runtime_gate"
         return payload
-    if not market_open:
-        payload["status"] = "blocked_market_closed"
-        return payload
     if not selected_orders:
         payload["status"] = "no_entries"
         return payload
@@ -182,10 +188,13 @@ def _execute_paper_entries(
     engine = RiskEngine(settings.risk)
     env = _paper_cli_env(settings)
     today = date.today().isoformat().replace("-", "")
+    today_key = f"-{today}-"
+    trades_today = sum(1 for order_id in seen if today_key in order_id)
 
     for intent in selected_orders:
         if intent.side != "buy" or intent.mode != "paper":
             continue
+        asset_class = _asset_class_for_symbol(intent.symbol)
         client_order_id = _client_order_id(intent.strategy_name, intent.symbol, today)
         entry: dict[str, Any] = {
             "symbol": intent.symbol,
@@ -193,6 +202,10 @@ def _execute_paper_entries(
             "client_order_id": client_order_id,
             "submitted": False,
         }
+        if not market_open and asset_class != "crypto":
+            entry["status"] = "blocked_market_closed"
+            payload["orders"].append(entry)
+            continue
         if client_order_id in seen:
             entry["status"] = "already_submitted"
             payload["orders"].append(entry)
@@ -206,12 +219,17 @@ def _execute_paper_entries(
         sized_intent = replace(intent, quantity=quantity, notional=notional)
         approved = engine.evaluate_intent(
             sized_intent.with_risk_decision(approved=False, blocks=()),
-            AccountState(buying_power=1_000_000.0, market_is_open=True),
+            AccountState(
+                buying_power=1_000_000.0,
+                market_is_open=market_open or asset_class == "crypto",
+                trades_today=trades_today,
+            ),
             MarketState(asset_tradable=True, spread_pct=0.01),
             RiskState(kill_switch_enabled=False),
             execution=ExecutionGateState(profile="paper"),
             order_type=order_type,
             limit_price=limit_price,
+            asset_class=asset_class,
         )
         entry["risk_blocks"] = list(approved.risk_blocks)
         if not approved.risk_approved:
@@ -247,10 +265,15 @@ def _execute_paper_entries(
             entry["submitted"] = True
             entry["status"] = "submitted"
             submitted_ids.append(client_order_id)
+            trades_today += 1
         else:
             entry["status"] = "submit_failed"
             entry["error"] = (result.stderr or result.stdout).strip()[:500]
         payload["orders"].append(entry)
+
+    if payload["orders"] and all(order.get("status") == "blocked_market_closed" for order in payload["orders"]):
+        payload["status"] = "blocked_market_closed"
+        return payload
 
     state["client_order_ids"] = sorted(set(submitted_ids))
     state["updated_at"] = datetime.now(UTC).isoformat()

@@ -18,6 +18,19 @@ def limits() -> RiskLimits:
     )
 
 
+def limits_with_crypto() -> RiskLimits:
+    return RiskLimits(
+        max_trades_per_day=3,
+        max_open_positions=3,
+        max_order_notional_usd=25,
+        max_position_notional_usd=50,
+        max_daily_loss_usd=25,
+        max_total_drawdown_usd=100,
+        max_account_risk_pct=1.0,
+        allow_crypto_trading=True,
+    )
+
+
 class RiskEngineTests(unittest.TestCase):
     def test_kill_switch_rejects_order(self) -> None:
         engine = RiskEngine(limits())
@@ -51,7 +64,16 @@ class RiskEngineTests(unittest.TestCase):
         )
         self.assertTrue(decision.approved, decision.reasons)
 
+    def test_crypto_can_pass_when_equity_market_is_closed(self) -> None:
+        engine = RiskEngine(limits_with_crypto())
+        decision = engine.evaluate(
+            OrderRequest("BTC/USD", "buy", 1, "limit", 10, asset_class="crypto"),
+            AccountState(buying_power=100, market_is_open=False),
+            MarketState(asset_tradable=True),
+            RiskState(kill_switch_enabled=False),
+        )
+        self.assertTrue(decision.approved, decision.reasons)
+
 
 if __name__ == "__main__":
     unittest.main()
-
