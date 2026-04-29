@@ -54,6 +54,7 @@ export type PaperStrategyExecution = {
   enabled?: boolean;
   runtime_gate_passed?: boolean;
   runtime_gate_blocks?: string[];
+  position_lookup_error?: string;
   market_open?: boolean;
   bankroll_usd?: number;
   max_notional_usd?: number;
@@ -74,7 +75,9 @@ export type PaperStrategyExecution = {
     notional_usd?: number;
     target_notional_usd?: number;
     current_position_notional_usd?: number;
+    current_position_qty?: number;
     upsize_from_notional_usd?: number;
+    position_lookup_error?: string;
   }>;
 };
 
@@ -118,6 +121,7 @@ export type PaperStrategyPayload = {
   file_updated_at?: string | null;
   live_trading_changed?: boolean;
   kill_switch_enabled?: boolean;
+  position_lookup_error?: string | null;
   paper_execution?: PaperStrategyExecution | null;
   strategies?: PaperStrategySnapshot[];
 };

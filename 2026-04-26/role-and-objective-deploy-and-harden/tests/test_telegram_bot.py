@@ -12,9 +12,12 @@ if TELEGRAM_DEPS_AVAILABLE:
     from trading_system.telegram.bot import (
         HEALTH_PATHS,
         KILL_SWITCH_PATHS,
+        PAPER_STRATEGY_PATHS,
         STATUS_PATHS,
         _api_headers,
         _format_payload,
+        _summarize_paper_orders,
+        _summarize_paper_strategy,
     )
 
 
@@ -24,6 +27,7 @@ class TelegramBotTests(unittest.TestCase):
         self.assertEqual(HEALTH_PATHS, ["/health"])
         self.assertEqual(STATUS_PATHS, ["/ready", "/metrics", "/health"])
         self.assertEqual(KILL_SWITCH_PATHS, ["/admin/kill"])
+        self.assertEqual(PAPER_STRATEGY_PATHS, ["/paper-strategy"])
 
     def test_api_headers_include_admin_token_aliases(self) -> None:
         with patch.dict(os.environ, {"ADMIN_TOKEN": "secret"}, clear=True):
@@ -38,6 +42,42 @@ class TelegramBotTests(unittest.TestCase):
 
         self.assertIn("...[truncated]", text)
         self.assertLess(len(text), 3600)
+
+    def test_order_summary_includes_buy_and_sell_rows(self) -> None:
+        text = _summarize_paper_orders(
+            {
+                "paper_execution": {
+                    "status": "complete",
+                    "orders": [
+                        {"side": "buy", "symbol": "QQQ", "status": "submitted", "qty": 2, "notional_usd": 100.0, "target_notional_usd": 150.0},
+                        {"side": "sell", "symbol": "XLE", "status": "submitted", "qty": 1, "notional_usd": 50.0},
+                    ],
+                }
+            }
+        )
+
+        self.assertIn("BUY QQQ", text)
+        self.assertIn("SELL XLE", text)
+
+    def test_strategy_summary_reports_sell_submissions(self) -> None:
+        text = _summarize_paper_strategy(
+            {
+                "status": "available",
+                "timestamp": "2026-04-29T19:00:00Z",
+                "paper_execution": {
+                    "status": "complete",
+                    "orders": [
+                        {"side": "buy", "submitted": True},
+                        {"side": "sell", "submitted": True},
+                        {"side": "sell", "submitted": False},
+                    ],
+                },
+                "strategies": [{"selected": [{"symbol": "QQQ"}], "exits": [{"symbol": "XLE"}]}],
+            }
+        )
+
+        self.assertIn("Submitted buys: 1", text)
+        self.assertIn("Submitted sells: 1", text)
 
 
 if __name__ == "__main__":

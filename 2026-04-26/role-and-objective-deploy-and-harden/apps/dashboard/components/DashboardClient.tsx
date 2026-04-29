@@ -320,7 +320,7 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
           <StrategyStat label="Risk Blocks" value={countRiskBlocks(paperStrategies, paperExecution).toString()} tone={countRiskBlocks(paperStrategies, paperExecution) ? "warn" : "good"} />
         </div>
         <div className="execution-strip">
-          <span>Entries {paperExecution?.enabled ? "enabled" : "disabled"}</span>
+          <span>Execution {paperExecution?.enabled ? "enabled" : "disabled"}</span>
           <span>Runtime gate {paperExecution?.runtime_gate_passed ? "passed" : "not passed"}</span>
           <span>Market {paperExecution?.market_open ? "open" : "closed or unknown"}</span>
           <span>Order type {paperExecution?.order_type || "unknown"}</span>
@@ -328,6 +328,7 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
           <span>Max order {formatCurrency(paperExecution?.max_notional_usd || paperExecution?.notional_usd)}</span>
           <span>Limit buffer {formatBps(paperExecution?.limit_buffer_bps)}</span>
         </div>
+        {paperExecution?.position_lookup_error ? <p className="muted compact">Position lookup: {paperExecution.position_lookup_error}</p> : null}
         <div className="table-shell strategy-table">
           <table>
             <thead>
@@ -366,24 +367,26 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
               <thead>
                 <tr>
                   <th>Symbol</th>
+                  <th>Side</th>
                   <th>Status</th>
                   <th>Target</th>
                   <th>Current</th>
                   <th>Order</th>
                   <th>Qty</th>
-                  <th>Risk</th>
+                  <th>Risk / Error</th>
                 </tr>
               </thead>
               <tbody>
                 {paperExecution.orders.map((order) => (
-                  <tr key={`${order.client_order_id || order.symbol}-${order.status}`}>
+                  <tr key={`${order.client_order_id || order.symbol}-${order.side || "unknown"}-${order.status}`}>
                     <td>{order.symbol || "unknown"}</td>
+                    <td>{formatName(order.side || "unknown")}</td>
                     <td>{formatName(order.status || "unknown")}</td>
-                    <td>{formatCurrency(order.target_notional_usd)}</td>
-                    <td>{formatCurrency(order.current_position_notional_usd)}</td>
+                    <td>{order.side === "sell" ? "exit" : formatCurrency(order.target_notional_usd)}</td>
+                    <td>{formatPositionCell(order.current_position_notional_usd, order.current_position_qty)}</td>
                     <td>{formatCurrency(order.notional_usd)}</td>
                     <td>{formatQuantity(order.qty)}</td>
-                    <td>{formatBlocks(order.risk_blocks)}</td>
+                    <td>{order.error ? order.error : formatBlocks(order.risk_blocks)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -663,6 +666,15 @@ function formatOrders(strategy: PaperStrategySnapshot) {
 function formatBlocks(blocks?: string[], warnings?: string[]) {
   const values = [...(blocks || []), ...(warnings || [])];
   return values.length ? values.map(formatName).join(", ") : "none";
+}
+
+function formatPositionCell(notional: number | undefined, qty: number | undefined) {
+  const formattedNotional = formatCurrency(notional);
+  const formattedQty = formatQuantity(qty);
+  if (formattedNotional !== "unknown" && formattedQty !== "unknown") {
+    return `${formattedNotional} (${formattedQty})`;
+  }
+  return formattedNotional !== "unknown" ? formattedNotional : formattedQty;
 }
 
 function formatPercent(value: number | null | undefined) {

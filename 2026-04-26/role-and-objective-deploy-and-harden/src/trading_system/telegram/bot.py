@@ -26,6 +26,7 @@ logging.getLogger("telegram.ext").setLevel(logging.INFO)
 HEALTH_PATHS = ["/health"]
 STATUS_PATHS = ["/ready", "/metrics", "/health"]
 KILL_SWITCH_PATHS = ["/admin/kill"]
+PAPER_STRATEGY_PATHS = ["/paper-strategy"]
 
 
 def _required_env(name: str) -> str:
@@ -94,6 +95,85 @@ def _format_payload(payload: Any) -> str:
         text = text[:3500] + "\n...[truncated]"
 
     return f"```json\n{text}\n```"
+
+
+def _float_or_none(value: object) -> float | None:
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
+def _summarize_paper_strategy(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return "Paper strategy payload is unavailable."
+    paper_execution = payload.get("paper_execution")
+    strategy_items = payload.get("strategies")
+    strategies = strategy_items if isinstance(strategy_items, list) else []
+    execution = paper_execution if isinstance(paper_execution, dict) else {}
+    orders = execution.get("orders") if isinstance(execution.get("orders"), list) else []
+    submitted_buy = sum(1 for item in orders if isinstance(item, dict) and item.get("submitted") and item.get("side") == "buy")
+    submitted_sell = sum(1 for item in orders if isinstance(item, dict) and item.get("submitted") and item.get("side") == "sell")
+    selected = 0
+    exits = 0
+    for strategy in strategies:
+        if not isinstance(strategy, dict):
+            continue
+        selected_items = strategy.get("selected")
+        exit_items = strategy.get("exits")
+        selected += len(selected_items) if isinstance(selected_items, list) else 0
+        exits += len(exit_items) if isinstance(exit_items, list) else 0
+    lines = [
+        f"Paper status: {payload.get('status') or 'unknown'}",
+        f"Cycle timestamp: {payload.get('timestamp') or 'unknown'}",
+        f"Execution status: {execution.get('status') or 'unknown'}",
+        f"Strategies: {len(strategies)} | Selected: {selected} | Exit intents: {exits}",
+        f"Submitted buys: {submitted_buy} | Submitted sells: {submitted_sell}",
+    ]
+    runtime_blocks = execution.get("runtime_gate_blocks")
+    if isinstance(runtime_blocks, list) and runtime_blocks:
+        lines.append("Runtime gate blocks: " + ", ".join(str(item) for item in runtime_blocks[:4]))
+    return "\n".join(lines)
+
+
+def _summarize_paper_orders(payload: Any, *, max_items: int = 8) -> str:
+    if not isinstance(payload, dict):
+        return "Paper strategy payload is unavailable."
+    paper_execution = payload.get("paper_execution")
+    if not isinstance(paper_execution, dict):
+        return "Paper execution payload is unavailable."
+    orders = paper_execution.get("orders")
+    if not isinstance(orders, list) or not orders:
+        return f"Paper execution status: {paper_execution.get('status') or 'unknown'}. No order rows in latest cycle."
+    lines = [f"Paper execution: {paper_execution.get('status') or 'unknown'}", f"Latest order rows ({len(orders)}):"]
+    for order in orders[:max_items]:
+        if not isinstance(order, dict):
+            continue
+        side = str(order.get("side") or "unknown").upper()
+        symbol = str(order.get("symbol") or "UNKNOWN")
+        status = str(order.get("status") or "unknown")
+        qty = _float_or_none(order.get("qty"))
+        notional = _float_or_none(order.get("notional_usd"))
+        target = _float_or_none(order.get("target_notional_usd"))
+        current = _float_or_none(order.get("current_position_notional_usd"))
+        details: list[str] = []
+        if qty is not None:
+            details.append(f"qty={qty:.4f}")
+        if notional is not None:
+            details.append(f"order=${notional:.2f}")
+        if side == "BUY" and target is not None:
+            details.append(f"target=${target:.2f}")
+        if current is not None:
+            details.append(f"current=${current:.2f}")
+        if order.get("error"):
+            details.append("error_present")
+        lines.append(f"- {side} {symbol}: {status}" + (f" ({', '.join(details)})" if details else ""))
+    if len(orders) > max_items:
+        lines.append(f"...and {len(orders) - max_items} more")
+    lookup_error = paper_execution.get("position_lookup_error")
+    if isinstance(lookup_error, str) and lookup_error:
+        lines.append(f"Position lookup error: {lookup_error}")
+    return "\n".join(lines)
 
 
 async def _api_get(paths: list[str]) -> tuple[str, Any]:
@@ -208,6 +288,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "Available commands:\n"
             "/health\n"
             "/status\n"
+            "/paper\n"
             "/account\n"
             "/positions\n"
             "/orders\n"
@@ -232,6 +313,14 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _reply_json(update, "Status", path, body)
 
 
+async def paper(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _authorized(update):
+        return
+    path, body = await _api_get(PAPER_STRATEGY_PATHS)
+    if update.message:
+        await update.message.reply_text(f"Paper strategy endpoint: {path}\n{_summarize_paper_strategy(body)}")
+
+
 async def account(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await _authorized(update):
         return
@@ -250,7 +339,9 @@ async def orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await _authorized(update):
         return
 
-    await _reply_unavailable(update, "Orders report")
+    path, body = await _api_get(PAPER_STRATEGY_PATHS)
+    if update.message:
+        await update.message.reply_text(f"Paper orders endpoint: {path}\n{_summarize_paper_orders(body)}")
 
 
 async def kill(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -270,6 +361,7 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("health", health))
     application.add_handler(CommandHandler("status", status))
+    application.add_handler(CommandHandler("paper", paper))
     application.add_handler(CommandHandler("account", account))
     application.add_handler(CommandHandler("positions", positions))
     application.add_handler(CommandHandler("orders", orders))
