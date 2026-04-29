@@ -1,13 +1,13 @@
 # Live Candidate Scorecard
 
 ## Executive summary
-The scorecard framework was implemented in `src/trading_system/research/scorecard.py`, and the provider validation runner now generates evidence-backed strategy status reports. No strategy meets restricted-live readiness.
+The scorecard framework was implemented in `src/trading_system/research/scorecard.py`, and the provider validation runner now generates evidence-backed strategy status reports from the read-only Alpaca historical research data layer. No strategy meets restricted-live readiness.
 
 ## What was tested
 Unit tests verify the 35/45 threshold, mandatory minimums, and default-disabled requirement.
 
 ## Data used
-Synthetic scorecard unit tests, registry strategy stage values, read-only Alpaca daily bars, and the generated provider validation manifest.
+Synthetic scorecard unit tests, registry strategy stage values, read-only Alpaca daily bars from the research data layer, and the generated provider validation manifest.
 
 ## Assumptions
 A scorecard is only valid when populated from reproducible evidence, not judgment alone.
@@ -25,6 +25,10 @@ Generated status results:
 - `post_earnings_drift_v1`: `needs_data`.
 
 The detailed score table is in `strategy_scorecard.md`.
+
+Core ETF evidence snapshot from this first multi-regime pass:
+- `etf_time_series_momentum_v1`: 67 trades, -0.86% slippage-adjusted return, 2.20% max drawdown, 4 of 5 positive walk-forward windows.
+- `cross_sectional_momentum_rotation_v1`: 58 trades, -0.85% slippage-adjusted return, 1.33% max drawdown, 1 of 5 positive walk-forward windows.
 
 ## What passed
 Scorecard threshold logic is implemented and tested. Evidence-backed status generation now runs from `scripts/research/run_provider_validation.py`.

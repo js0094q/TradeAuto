@@ -4,6 +4,64 @@
   "live_trading_enabled": false,
   "option_contracts_sampled": 100,
   "orders_placed": false,
+  "paper_positions": {
+    "count": 4,
+    "fetch_error": null,
+    "positions": [
+      {
+        "asset_class": "us_equity",
+        "avg_entry_price": 658.672714,
+        "current_price": 658.45,
+        "market_value": 24987.85486,
+        "matched_strategies": [
+          "cross_sectional_momentum_rotation_v1",
+          "etf_time_series_momentum_v1"
+        ],
+        "qty": 37.94951,
+        "side": "long",
+        "symbol": "QQQ"
+      },
+      {
+        "asset_class": "us_equity",
+        "avg_entry_price": 158.180009,
+        "current_price": 158.07,
+        "market_value": 24982.613849,
+        "matched_strategies": [
+          "cross_sectional_momentum_rotation_v1",
+          "etf_time_series_momentum_v1"
+        ],
+        "qty": 158.047788,
+        "side": "long",
+        "symbol": "XLK"
+      },
+      {
+        "asset_class": "us_equity",
+        "avg_entry_price": 58.869973,
+        "current_price": 58.745,
+        "market_value": 24841.428655,
+        "matched_strategies": [
+          "cross_sectional_momentum_rotation_v1",
+          "etf_time_series_momentum_v1"
+        ],
+        "qty": 422.868817,
+        "side": "long",
+        "symbol": "XLE"
+      },
+      {
+        "asset_class": "us_equity",
+        "avg_entry_price": 273.558,
+        "current_price": 270.61,
+        "market_value": 0.985562,
+        "matched_strategies": [
+          "cross_sectional_momentum_rotation_v1",
+          "etf_time_series_momentum_v1"
+        ],
+        "qty": 0.003642,
+        "side": "long",
+        "symbol": "IWM"
+      }
+    ]
+  },
   "periods": [
     [
       "2018_volatility_shock",
@@ -48,7 +106,7 @@
       "2026-04-28"
     ]
   ],
-  "provider": "alpaca_cli_read_only",
+  "provider": "alpaca_historical_research_data_layer",
   "results": {
     "cross_sectional_momentum_rotation_v1": {
       "metrics": {
@@ -161,10 +219,10 @@
     "etf_time_series_momentum_v1": {
       "metrics": {
         "by_regime": {
-          "2021_liquidity_momentum": 2.229862576330422,
+          "2021_liquidity_momentum": 2.2298625763304223,
           "2022_rate_hike_bear": 0.3938639991206192,
           "2023_mega_cap_ai": 3.869790473486488,
-          "2024_normalization": 2.380904368827178,
+          "2024_normalization": 2.3809043688271787,
           "2025_2026_recent": -17.448938984448308
         },
         "by_symbol": {
@@ -179,9 +237,9 @@
           "XLV": 0.19867153145736083
         },
         "by_time_of_day": {
-          "daily_close": -8.5745175666836
+          "daily_close": -8.574517566683598
         },
-        "max_drawdown": 0.019434016545807252,
+        "max_drawdown": 0.021971257181196507,
         "profit_factor": 0.7744793566808751,
         "sharpe": -1.091627332963333,
         "slippage_adjusted_return": -0.008574517566683594,

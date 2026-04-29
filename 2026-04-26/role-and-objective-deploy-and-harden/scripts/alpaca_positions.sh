@@ -7,4 +7,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/alpaca_cli.sh"
 alpaca_cli_command
 
+if ALPACA_PROFILE="${PROFILE}" "${ALPACA_CLI_COMMAND[@]}" --profile "${PROFILE}" --quiet position list; then
+  exit 0
+fi
+
+# Backward-compatibility fallback for older CLI shapes.
 ALPACA_PROFILE="${PROFILE}" "${ALPACA_CLI_COMMAND[@]}" --profile "${PROFILE}" --quiet positions list

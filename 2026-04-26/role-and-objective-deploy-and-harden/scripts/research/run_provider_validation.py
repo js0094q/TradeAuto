@@ -7,9 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from statistics import fmean
 
-from trading_system.data.alpaca_provider import AlpacaDataProvider, CliRunner
+from trading_system.broker.alpaca_cli import AlpacaCli
+from trading_system.data.alpaca_market_data import MarketDataProviderError as ResearchDataError, ReadOnlyAlpacaMarketData
 from trading_system.data.models import MarketBar
-from trading_system.data.provider import CachedMarketDataProvider, DataCache, MarketDataProviderError
+from trading_system.data.provider import MarketDataProviderError
+from trading_system.research.data_layer import build_read_only_historical_data_layer, fetch_historical_bars
 from trading_system.research.backtesting.costs import MODERATE_COST_CASE
 from trading_system.research.backtesting.metrics import Trade, calculate_metrics
 from trading_system.research.backtesting.reporting import summarize_metrics
@@ -37,8 +39,91 @@ class ProviderRun:
     notes: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class PaperPositionSnapshot:
+    symbol: str
+    qty: float
+    market_value: float
+    avg_entry_price: float
+    current_price: float
+    side: str
+    asset_class: str
+    matched_strategies: tuple[str, ...]
+
+
 def close_prices(bars: list[MarketBar]) -> list[float]:
     return [bar.close for bar in bars if bar.close > 0]
+
+
+def as_float(value: object) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def normalize_symbol(value: str) -> str:
+    return value.strip().upper().replace("/", "").replace("-", "")
+
+
+def strategy_symbol_index(runs: dict[str, ProviderRun]) -> dict[str, tuple[str, ...]]:
+    index: dict[str, list[str]] = {}
+    for strategy, run in runs.items():
+        for symbol in run.symbols_tested:
+            index.setdefault(normalize_symbol(symbol), []).append(strategy)
+    return {symbol: tuple(sorted(strategies)) for symbol, strategies in index.items()}
+
+
+def _run_positions_command(cli: AlpacaCli) -> tuple[bool, str]:
+    commands = (
+        ("position", "list", "--quiet"),
+        ("positions", "list", "--quiet"),
+    )
+    last_error = ""
+    for args in commands:
+        result = cli.run(*args)
+        if result.ok:
+            return True, result.stdout
+        text = (result.stderr or result.stdout).strip()
+        if text:
+            last_error = text
+    return False, last_error
+
+
+def fetch_paper_positions_snapshot(*, profile: str, runs: dict[str, ProviderRun]) -> tuple[tuple[PaperPositionSnapshot, ...], str | None]:
+    cli = AlpacaCli(profile=profile)
+    ok, payload = _run_positions_command(cli)
+    if not ok:
+        return (), payload or "failed to fetch paper positions"
+    try:
+        raw = json.loads(payload or "[]")
+    except json.JSONDecodeError as exc:
+        return (), f"invalid paper positions payload: {exc}"
+    if not isinstance(raw, list):
+        return (), "invalid paper positions payload: expected list"
+    symbol_to_strategy = strategy_symbol_index(runs)
+    positions: list[PaperPositionSnapshot] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        symbol = str(item.get("symbol", "")).strip().upper()
+        if not symbol:
+            continue
+        matched = symbol_to_strategy.get(normalize_symbol(symbol), ())
+        positions.append(
+            PaperPositionSnapshot(
+                symbol=symbol,
+                qty=as_float(item.get("qty")),
+                market_value=as_float(item.get("market_value")),
+                avg_entry_price=as_float(item.get("avg_entry_price")),
+                current_price=as_float(item.get("current_price")),
+                side=str(item.get("side", "unknown")),
+                asset_class=str(item.get("asset_class", "unknown")),
+                matched_strategies=matched,
+            )
+        )
+    positions.sort(key=lambda item: abs(item.market_value), reverse=True)
+    return tuple(positions), None
 
 
 def pct_change(previous: float, current: float) -> float:
@@ -294,6 +379,8 @@ def write_reports(
     scores: dict[str, dict[str, int]],
     fetch_errors: list[str],
     option_contract_count: int,
+    paper_positions: tuple[PaperPositionSnapshot, ...],
+    paper_positions_error: str | None,
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     results = {
@@ -309,7 +396,7 @@ def write_reports(
     (output_dir / "provider_validation_results.json").write_text(
         json.dumps(
             {
-                "provider": "alpaca_cli_read_only",
+                "provider": "alpaca_historical_research_data_layer",
                 "cost_case": MODERATE_COST_CASE.name,
                 "periods": VALIDATION_PERIODS,
                 "option_contracts_sampled": option_contract_count,
@@ -317,6 +404,23 @@ def write_reports(
                 "results": results,
                 "statuses": {name: status for name, status in statuses.items()},
                 "scores": scores,
+                "paper_positions": {
+                    "count": len(paper_positions),
+                    "fetch_error": paper_positions_error,
+                    "positions": [
+                        {
+                            "symbol": item.symbol,
+                            "qty": item.qty,
+                            "market_value": item.market_value,
+                            "avg_entry_price": item.avg_entry_price,
+                            "current_price": item.current_price,
+                            "side": item.side,
+                            "asset_class": item.asset_class,
+                            "matched_strategies": item.matched_strategies,
+                        }
+                        for item in paper_positions
+                    ],
+                },
                 "orders_placed": False,
                 "live_trading_enabled": False,
             },
@@ -340,11 +444,23 @@ def write_reports(
                 f"{float(metrics['win_rate']) * 100:.1f}%",
             )
         )
+    position_rows = [
+        (
+            item.symbol,
+            f"{item.qty:.6f}",
+            f"${item.market_value:,.2f}",
+            item.side,
+            item.asset_class,
+            ", ".join(item.matched_strategies) if item.matched_strategies else "none",
+        )
+        for item in paper_positions
+    ]
     (output_dir / "provider_backtest_results.md").write_text(
         "# Provider-Backed Backtest Results\n\n"
-        "Read-only Alpaca CLI data was used for historical daily bars. No order endpoints were called, "
-        "and live trading was not enabled. Metrics use moderate spread/slippage assumptions and a "
+        "Read-only Alpaca historical market data from the research data layer was used for daily bars. "
+        "No order endpoints were called, and live trading was not enabled. Metrics use moderate spread/slippage assumptions and a "
         "$25 strategy notional against a $1,000 research equity base for comparability.\n\n"
+        f"Core ETF universe for this pass: {', '.join(ETF_UNIVERSE)}.\n\n"
         + markdown_table(
             (
                 "Strategy",
@@ -359,6 +475,16 @@ def write_reports(
         )
         + "\n\nFetch gaps: "
         + ("; ".join(fetch_errors) if fetch_errors else "none")
+        + "\n\n## Current Paper Positions Snapshot\n\n"
+        + (
+            markdown_table(
+                ("Symbol", "Qty", "Market Value", "Side", "Asset Class", "Matched Strategy Universes"),
+                position_rows,
+            )
+            if position_rows
+            else "No open paper positions were returned for the selected profile."
+        )
+        + ("\n\nPosition snapshot fetch issue: " + paper_positions_error if paper_positions_error else "")
         + "\n",
         encoding="utf-8",
     )
@@ -367,11 +493,21 @@ def write_reports(
         (name, statuses[name][0], statuses[name][1], sum(scores[name].values()), statuses[name][2])
         for name in statuses
     ]
+    matched_position_count = sum(1 for item in paper_positions if item.matched_strategies)
+    unmatched_position_count = len(paper_positions) - matched_position_count
     (output_dir / "strategy_scorecard.md").write_text(
         "# Strategy Scorecard\n\n"
-        "Scores are 0-5 per mandate dimension. Monitoring remains below restricted-live threshold "
+        "Scores are 0-5 per mandate dimension. This scorecard uses the first provider-backed, multi-regime pass "
+        "over the core ETF universe plus the existing strategy set. Monitoring remains below restricted-live threshold "
         "because dashboard/Telegram shadow evidence has not yet been produced for the new candidates.\n\n"
+        + f"Current paper-position linkage: {matched_position_count} matched position(s), {unmatched_position_count} unmatched position(s).\n\n"
         + markdown_table(("Strategy", "Status", "Best Mode Now", "Score", "Reason"), score_rows)
+        + (
+            "\n\nPaper positions were mapped to strategy universes by symbol overlap from this run."
+            if paper_positions
+            else "\n\nNo open paper positions were available to map for this run."
+        )
+        + ("\n\nPosition snapshot fetch issue: " + paper_positions_error if paper_positions_error else "")
         + "\n\nNo strategy is marked `restricted_live_ready`.\n",
         encoding="utf-8",
     )
@@ -394,8 +530,10 @@ def write_reports(
         walk_rows.append((name, len(returns), positive, "pass" if positive >= 3 else "needs more validation"))
     (output_dir / "walk_forward_validation.md").write_text(
         "# Walk-Forward Validation\n\n"
-        "This pass uses parameter-fixed, regime-segmented walk-forward checks. It is useful for first promotion "
-        "decisions but does not replace full train/validation/test optimization controls.\n\n"
+        "This first pass uses parameter-fixed, regime-segmented walk-forward checks anchored to the core ETF "
+        "multi-regime historical run. It is useful for first promotion decisions but does not replace full "
+        "train/validation/test optimization controls.\n\n"
+        f"Core ETF universe for this pass: {', '.join(ETF_UNIVERSE)}.\n\n"
         + markdown_table(("Strategy", "Provider Windows", "Positive Test Windows", "Assessment"), walk_rows)
         + "\n\nRestricted-live review still requires paper/shadow execution logs, spread evidence, latency sensitivity, "
         "Telegram alert validation, dashboard visibility, and kill-switch validation.\n",
@@ -414,19 +552,33 @@ def write_reports(
     )
 
 
-def fetch_period_data(provider: CachedMarketDataProvider) -> tuple[dict[str, dict[str, list[MarketBar]]], dict[str, dict[str, list[MarketBar]]], list[str]]:
+def fetch_period_data(data_layer: ReadOnlyAlpacaMarketData) -> tuple[dict[str, dict[str, list[MarketBar]]], dict[str, dict[str, list[MarketBar]]], list[str]]:
     equity_data: dict[str, dict[str, list[MarketBar]]] = {}
     crypto_data: dict[str, dict[str, list[MarketBar]]] = {}
     errors: list[str] = []
     for period_id, _, start, end in VALIDATION_PERIODS:
         try:
-            equity_data[period_id] = provider.fetch_bars(ETF_UNIVERSE, "1Day", start, end)
-        except MarketDataProviderError as exc:
+            equity_data[period_id] = fetch_historical_bars(
+                data_layer,
+                symbols=ETF_UNIVERSE,
+                asset_class="equity",
+                timeframe="1Day",
+                start=start,
+                end=end,
+            )
+        except ResearchDataError as exc:
             equity_data[period_id] = {}
             errors.append(f"{period_id} equity bars: {exc}")
         try:
-            crypto_data[period_id] = provider.fetch_crypto_bars(CRYPTO_UNIVERSE, "1Day", start, end)
-        except MarketDataProviderError as exc:
+            crypto_data[period_id] = fetch_historical_bars(
+                data_layer,
+                symbols=CRYPTO_UNIVERSE,
+                asset_class="crypto",
+                timeframe="1Day",
+                start=start,
+                end=end,
+            )
+        except ResearchDataError as exc:
             crypto_data[period_id] = {}
             errors.append(f"{period_id} crypto bars: {exc}")
     return equity_data, crypto_data, errors
@@ -441,19 +593,17 @@ def main() -> int:
     parser.add_argument("--max-notional", type=float, default=25.0)
     args = parser.parse_args()
 
-    provider = CachedMarketDataProvider(
-        AlpacaDataProvider(
-            runner=CliRunner(profile=args.profile),
-            feed=args.feed,
-            option_feed=args.option_feed,
-        ),
-        DataCache("data/research_market_cache", ttl_seconds=86_400),
-        default_ttl_seconds=86_400,
+    data_layer, raw_provider = build_read_only_historical_data_layer(
+        profile=args.profile,
+        feed=args.feed,
+        option_feed=args.option_feed,
+        cache_root="data/research_market_cache",
+        cache_ttl_seconds=86_400.0,
     )
-    equity_data, crypto_data, fetch_errors = fetch_period_data(provider)
+    equity_data, crypto_data, fetch_errors = fetch_period_data(data_layer)
     option_contract_count = 0
     try:
-        option_contract_count = len(provider.fetch_option_chain("SPY").contracts)
+        option_contract_count = len(raw_provider.fetch_option_chain("SPY").contracts)
     except MarketDataProviderError as exc:
         fetch_errors.append(f"SPY option chain sample: {exc}")
 
@@ -489,6 +639,7 @@ def main() -> int:
         ),
     }
     runs = {**completed_runs, **empty_runs}
+    paper_positions, paper_positions_error = fetch_paper_positions_snapshot(profile=args.profile, runs=runs)
     statuses = {
         name: classify_status(run, strategy=name, period_result=period_returns(run.trades))
         for name, run in runs.items()
@@ -509,16 +660,21 @@ def main() -> int:
         scores,
         fetch_errors,
         option_contract_count,
+        paper_positions,
+        paper_positions_error,
     )
     print(
         json.dumps(
             {
+                "data_layer": "read_only_alpaca_historical_market_data",
                 "orders_placed": False,
                 "live_trading_enabled": False,
                 "output_dir": args.output_dir,
                 "statuses": statuses,
                 "fetch_errors": fetch_errors,
                 "option_contracts_sampled": option_contract_count,
+                "paper_positions_count": len(paper_positions),
+                "paper_positions_fetch_error": paper_positions_error,
             },
             indent=2,
             sort_keys=True,

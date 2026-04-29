@@ -1,6 +1,8 @@
 # Walk-Forward Validation
 
-This pass uses parameter-fixed, regime-segmented walk-forward checks. It is useful for first promotion decisions but does not replace full train/validation/test optimization controls.
+This first pass uses parameter-fixed, regime-segmented walk-forward checks anchored to the core ETF multi-regime historical run. It is useful for first promotion decisions but does not replace full train/validation/test optimization controls.
+
+Core ETF universe for this pass: SPY, QQQ, IWM, DIA, XLK, XLF, XLE, XLV, XLI.
 
 | Strategy | Provider Windows | Positive Test Windows | Assessment |
 | --- | --- | --- | --- |

@@ -1,6 +1,8 @@
 # Strategy Scorecard
 
-Scores are 0-5 per mandate dimension. Monitoring remains below restricted-live threshold because dashboard/Telegram shadow evidence has not yet been produced for the new candidates.
+Scores are 0-5 per mandate dimension. This scorecard uses the first provider-backed, multi-regime pass over the core ETF universe plus the existing strategy set. Monitoring remains below restricted-live threshold because dashboard/Telegram shadow evidence has not yet been produced for the new candidates.
+
+Current paper-position linkage: 4 matched position(s), 0 unmatched position(s).
 
 | Strategy | Status | Best Mode Now | Score | Reason |
 | --- | --- | --- | --- | --- |
@@ -10,5 +12,7 @@ Scores are 0-5 per mandate dimension. Monitoring remains below restricted-live t
 | opening_range_breakout_v1 | shadow_ready | shadow | 35 | Implementation is explainable and gated, but provider-backed intraday validation is still required. |
 | vwap_mean_reversion_v1 | shadow_ready | shadow | 35 | Implementation is explainable and gated, but provider-backed intraday validation is still required. |
 | post_earnings_drift_v1 | needs_data | research_only | 31 | Earnings surprise and revisions data are not available in the current provider adapter. |
+
+Paper positions were mapped to strategy universes by symbol overlap from this run.
 
 No strategy is marked `restricted_live_ready`.
