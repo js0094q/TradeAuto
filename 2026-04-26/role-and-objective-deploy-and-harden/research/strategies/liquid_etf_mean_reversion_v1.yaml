@@ -1,0 +1,49 @@
+name: liquid_etf_mean_reversion_v1
+version: 1
+status: candidate
+asset_class: equities_etf
+universe:
+  - SPY
+  - QQQ
+  - IWM
+  - TLT
+  - GLD
+data_sources:
+  - Alpaca historical stock bars
+timeframe: 1Day
+hypothesis: Short-term oversold conditions in highly liquid ETFs can revert when the broader market regime stays constructive.
+features:
+  - 5d mean distance
+  - 20d z-score
+  - 200d trend guard
+  - loss cooldown
+entry_rules:
+  - Buy when z-score >= 1.5
+  - Require benchmark regime support
+  - Require price near or above long-term trend
+exit_rules:
+  - Exit on mean reversion
+  - Exit after 5 bars
+  - Exit on 3% stop
+risk_controls:
+  - stop_loss: 3% from entry
+  - take_profit: Return to 5-day mean
+  - regime_filter: SPY above 200d SMA
+  - cooldown: 2-bar cooldown after a losing exit
+position_sizing: 7.5k notional per signal
+backtest_summary:
+  score: 91.7
+  recommendation: paper_validate
+  average_return: 0.0048
+  average_max_drawdown: 0.0022
+  robustness: 0.75
+known_risks:
+  - Momentum crashes through oversold levels
+  - Volatility regime shifts
+  - Too many clustered signals during drawdowns
+implementation_steps:
+  - data adapter integration
+  - strategy module wiring behind research-only gate
+  - backtest regression coverage
+  - paper-trading shadow validation
+  - kill-switch validation before any promotion review

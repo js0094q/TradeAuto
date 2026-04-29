@@ -1,0 +1,54 @@
+name: equity_etf_trend_regime_v1
+version: 1
+status: candidate
+asset_class: equities_etf
+universe:
+  - SPY
+  - QQQ
+  - IWM
+  - DIA
+  - XLK
+  - XLF
+  - XLE
+  - XLV
+  - XLY
+  - XLP
+  - TLT
+  - GLD
+data_sources:
+  - Alpaca historical stock bars
+timeframe: 1Day
+hypothesis: Trading only the top-trending liquid ETFs during confirmed risk-on regimes should improve return quality and drawdown control.
+features:
+  - 50d/200d trend
+  - 60d relative strength
+  - 20d realized volatility
+entry_rules:
+  - Select top 3 ETFs by 60d return
+  - Require price above 200d SMA
+  - Require SPY risk-on regime
+exit_rules:
+  - Exit on deselection
+  - Exit when SPY regime turns risk-off
+risk_controls:
+  - stop_loss: Portfolio-level cash switch when SPY loses 200d trend or vol filter fails
+  - take_profit: Trend hold until deselection rather than fixed target
+  - regime_filter: SPY above 200d SMA and 20d realized vol <= 2.5%
+  - cooldown: None in baseline; rotation naturally slows turnover
+position_sizing: Equal weight across up to 3 positions at 10k notional each in research simulation
+backtest_summary:
+  score: 90.57
+  recommendation: paper_validate
+  average_return: 0.0303
+  average_max_drawdown: 0.0110
+  robustness: 0.75
+known_risks:
+  - Fast regime reversals
+  - Late-cycle concentration in one sector
+  - Trend lag after macro shock
+implementation_steps:
+  - data adapter integration
+  - strategy module wiring behind research-only gate
+  - backtest regression coverage
+  - paper-trading shadow validation
+  - kill-switch validation before any promotion review

@@ -1,0 +1,55 @@
+name: trend_following_pullback_blueprint_v1
+version: 1
+status: candidate
+asset_class: equities_etf
+universe:
+  - SPY
+  - QQQ
+  - IWM
+  - DIA
+  - XLK
+  - XLF
+  - XLE
+  - XLV
+  - XLY
+  - XLP
+  - TLT
+  - GLD
+data_sources:
+  - Alpaca historical stock bars
+timeframe: 1Day
+hypothesis: Trade only in the dominant trend, use one momentum confirmation, size with ATR, and reject low-liquidity setups.
+features:
+  - 200 SMA regime filter
+  - 20 EMA and 50 EMA trend structure
+  - RSI pullback confirmation above 40
+  - ATR for stop distance and sizing
+  - Relative volume and spread filter
+entry_rules:
+  - only trade long when price is above 200 SMA
+  - require 20 EMA above 50 EMA
+  - buy pullback toward 20 EMA or 50 EMA
+  - require RSI to hold above 40
+  - reject low-volume or wide-spread setups
+exit_rules:
+  - exit on 2x ATR stop
+  - exit on 20 EMA trend break or failed momentum recovery
+  - allow trailing ATR stop for trend persistence
+risk_controls:
+  - risk per trade: 0.25% to 1.0% of equity
+  - max positions: 3
+  - daily loss limit and kill switch required
+position_sizing: ATR-normalized position sizing
+backtest_summary:
+  proxy_strategy: equity_etf_trend_regime_v1
+  proxy_score: 90.57
+  note: current repo evidence comes from the simpler ETF trend/regime proxy; this blueprint is the preferred build-first refinement.
+known_risks:
+  - underperforms in sideways markets
+  - can lag sharp reversals
+  - requires disciplined liquidity filters
+implementation_steps:
+  - add EMA pullback and RSI confirmation fields to the ETF trend candidate
+  - wire ATR sizing and stop outputs into research-only evaluation
+  - add relative-volume and spread gating
+  - validate in paper mode before any promotion review

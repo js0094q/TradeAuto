@@ -1,0 +1,809 @@
+{
+  "generated_at": "2026-04-29T04:10:32.213012+00:00",
+  "results": [
+    {
+      "average_max_drawdown": 0.003825320983485435,
+      "average_return": 0.010559224372687649,
+      "definition": {
+        "asset_class": "equities_etf",
+        "cooldown_rules": "No extra cooldown in research baseline",
+        "entry_rules": [
+          "Select top 2 high-beta ETFs by 60d strength",
+          "Require SPY risk-on",
+          "Require BTC and ETH above 50d trend"
+        ],
+        "exit_rules": [
+          "Exit on deselection",
+          "Exit when crypto confirmation fails",
+          "Exit when SPY regime turns off"
+        ],
+        "features": [
+          "High-beta ETF relative strength",
+          "SPY trend",
+          "BTC/ETH 50d confirmation"
+        ],
+        "hypothesis": "BTC and ETH trend confirmation can reduce weak high-beta equity entries and improve drawdown behavior during mixed risk appetite.",
+        "implementation_complexity": "medium",
+        "known_failure_modes": [
+          "Crypto filter can sideline valid equity trends",
+          "Delayed confirmation after sharp equity rebounds",
+          "Correlation breakdowns"
+        ],
+        "market_regime_filter": "SPY above 200d SMA plus BTC/ETH above 50d averages",
+        "max_daily_trades": 2,
+        "max_positions": 2,
+        "minimum_data_required": "200 equity bars and 50 crypto daily bars",
+        "name": "cross_market_high_beta_confirmation_v1",
+        "notes": [
+          "This was the controlled improvement cycle on the ETF trend family and directly addresses the requested cross-market filter hypothesis."
+        ],
+        "position_sizing": "Equal weight across up to 2 positions",
+        "primary_data_source": "Alpaca historical stock bars",
+        "recommended_next_step": "Paper-validate as an overlay to the existing ETF momentum framework, not as a standalone live promotion candidate.",
+        "secondary_data_source": "Alpaca crypto daily bars",
+        "slippage_assumption": "3 bps spread and 3 bps slippage baseline",
+        "stop_loss": "Portfolio cash switch when equity or crypto regime breaks",
+        "take_profit": "Trend hold until deselection",
+        "timeframe": "1Day",
+        "transaction_cost_assumption": "Moderate equity cost case",
+        "universe": [
+          "QQQ",
+          "IWM",
+          "XLK",
+          "XLY",
+          "XLC"
+        ]
+      },
+      "recommendation": "paper_validate",
+      "rejection_reason": null,
+      "robustness": 0.75,
+      "score": 91.8,
+      "score_components": {
+        "drawdown_behavior": 98.09,
+        "execution_realism": 89.33,
+        "implementation_fit": 85.0,
+        "return_quality": 100.0,
+        "risk_control": 98.47,
+        "robustness": 81.43,
+        "simplicity": 80.0
+      },
+      "total_trades": 59,
+      "window_results": [
+        {
+          "annualized_return": 0.03479158952325112,
+          "metrics": {
+            "max_drawdown": 0.0071623466602349075,
+            "profit_factor": 2.117447956960925,
+            "sharpe": 3.8114982813792264,
+            "sortino": 11.700503962662284,
+            "total_return": 0.011023064896961261,
+            "trade_count": 18,
+            "win_rate": 0.3888888888888889
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.007877987888048082,
+            "total_return": 0.007763637233632211
+          },
+          "trades_per_day": 0.15384615384615385,
+          "window": {
+            "end": "2026-04-28",
+            "name": "recent_short",
+            "start": "2026-01-01"
+          }
+        },
+        {
+          "annualized_return": 0.0242096052654881,
+          "metrics": {
+            "max_drawdown": 0.0071623466602349075,
+            "profit_factor": 2.6168299600354623,
+            "sharpe": 5.067381106429809,
+            "sortino": 15.265271548744504,
+            "total_return": 0.02400825255833676,
+            "trade_count": 35,
+            "win_rate": 0.5142857142857142
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.007877987888048082,
+            "total_return": 0.01766815270453162
+          },
+          "trades_per_day": 0.09668508287292818,
+          "window": {
+            "end": "2026-04-28",
+            "name": "medium_window",
+            "start": "2025-05-01"
+          }
+        },
+        {
+          "annualized_return": 0.0,
+          "metrics": {
+            "max_drawdown": 0.0,
+            "profit_factor": 0.0,
+            "sharpe": 0.0,
+            "sortino": 0.0,
+            "total_return": 0.0,
+            "trade_count": 0,
+            "win_rate": 0.0
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.0,
+            "total_return": 0.0
+          },
+          "trades_per_day": 0.0,
+          "window": {
+            "end": "2025-04-30",
+            "name": "prior_volatile_window",
+            "start": "2025-02-01"
+          }
+        },
+        {
+          "annualized_return": 0.029216541821429853,
+          "metrics": {
+            "max_drawdown": 0.000976590613471926,
+            "profit_factor": 8.378301548317767,
+            "sharpe": 13.383973906564224,
+            "sortino": 90.34861510939602,
+            "total_return": 0.007205580035452575,
+            "trade_count": 6,
+            "win_rate": 0.6666666666666666
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.0013367622090270743,
+            "total_return": 0.006115916748296301
+          },
+          "trades_per_day": 0.06593406593406594,
+          "window": {
+            "end": "2025-08-31",
+            "name": "sideways_window",
+            "start": "2025-06-01"
+          }
+        }
+      ]
+    },
+    {
+      "average_max_drawdown": 0.0022170475029233056,
+      "average_return": 0.0047706899440241165,
+      "definition": {
+        "asset_class": "equities_etf",
+        "cooldown_rules": "2-bar cooldown after a losing exit",
+        "entry_rules": [
+          "Buy when z-score >= 1.5",
+          "Require benchmark regime support",
+          "Require price near or above long-term trend"
+        ],
+        "exit_rules": [
+          "Exit on mean reversion",
+          "Exit after 5 bars",
+          "Exit on 3% stop"
+        ],
+        "features": [
+          "5d mean distance",
+          "20d z-score",
+          "200d trend guard",
+          "loss cooldown"
+        ],
+        "hypothesis": "Short-term oversold conditions in highly liquid ETFs can revert when the broader market regime stays constructive.",
+        "implementation_complexity": "low",
+        "known_failure_modes": [
+          "Momentum crashes through oversold levels",
+          "Volatility regime shifts",
+          "Too many clustered signals during drawdowns"
+        ],
+        "market_regime_filter": "SPY above 200d SMA",
+        "max_daily_trades": 2,
+        "max_positions": 2,
+        "minimum_data_required": "200 daily bars per symbol and benchmark history",
+        "name": "liquid_etf_mean_reversion_v1",
+        "notes": [
+          "This setup is simple to explain and easy to wire, but it remains more regime-sensitive than the trend candidates."
+        ],
+        "position_sizing": "7.5k notional per signal",
+        "primary_data_source": "Alpaca historical stock bars",
+        "recommended_next_step": "Keep as a secondary paper-shadow module if ETF rotation needs a diversifying overlay.",
+        "secondary_data_source": null,
+        "slippage_assumption": "3 bps spread and 3 bps slippage baseline",
+        "stop_loss": "3% from entry",
+        "take_profit": "Return to 5-day mean",
+        "timeframe": "1Day",
+        "transaction_cost_assumption": "Moderate equity cost case",
+        "universe": [
+          "SPY",
+          "QQQ",
+          "IWM",
+          "TLT",
+          "GLD"
+        ]
+      },
+      "recommendation": "paper_validate",
+      "rejection_reason": null,
+      "robustness": 0.75,
+      "score": 91.7,
+      "score_components": {
+        "drawdown_behavior": 98.89,
+        "execution_realism": 89.61,
+        "implementation_fit": 79.0,
+        "return_quality": 100.0,
+        "risk_control": 99.11,
+        "robustness": 81.88,
+        "simplicity": 78.0
+      },
+      "total_trades": 46,
+      "window_results": [
+        {
+          "annualized_return": 0.02409044972050256,
+          "metrics": {
+            "max_drawdown": 7.041939591392292e-05,
+            "profit_factor": 109.77377824102733,
+            "sharpe": 23.49816328661573,
+            "sortino": 0.0,
+            "total_return": 0.0076597837550119625,
+            "trade_count": 13,
+            "win_rate": 0.9230769230769231
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.00026525335180398543,
+            "total_return": 0.0058927359295392855
+          },
+          "trades_per_day": 0.1111111111111111,
+          "window": {
+            "end": "2026-04-28",
+            "name": "recent_short",
+            "start": "2026-01-01"
+          }
+        },
+        {
+          "annualized_return": 0.014562143484217804,
+          "metrics": {
+            "max_drawdown": 0.0005916842294666275,
+            "profit_factor": 12.776698711788738,
+            "sharpe": 17.95732196443178,
+            "sortino": 49.29570327562469,
+            "total_return": 0.01444159453244715,
+            "trade_count": 25,
+            "win_rate": 0.84
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.0007265450677392072,
+            "total_return": 0.011043686280494262
+          },
+          "trades_per_day": 0.06906077348066299,
+          "window": {
+            "end": "2026-04-28",
+            "name": "medium_window",
+            "start": "2025-05-01"
+          }
+        },
+        {
+          "annualized_return": -0.0335995930674895,
+          "metrics": {
+            "max_drawdown": 0.008206086386312672,
+            "profit_factor": 0.0,
+            "sharpe": -28.864598703831586,
+            "sortino": -28.864598703831586,
+            "total_return": -0.008206086386312598,
+            "trade_count": 3,
+            "win_rate": 0.0
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.008604864039527019,
+            "total_return": -0.008604864039527047
+          },
+          "trades_per_day": 0.03409090909090909,
+          "window": {
+            "end": "2025-04-30",
+            "name": "prior_volatile_window",
+            "start": "2025-02-01"
+          }
+        },
+        {
+          "annualized_return": 0.020969937985852116,
+          "metrics": {
+            "max_drawdown": 0.0,
+            "profit_factor": Infinity,
+            "sharpe": 54.44655567611491,
+            "sortino": 0.0,
+            "total_return": 0.005187467874949952,
+            "trade_count": 5,
+            "win_rate": 1.0
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.0,
+            "total_return": 0.004505810937413535
+          },
+          "trades_per_day": 0.054945054945054944,
+          "window": {
+            "end": "2025-08-31",
+            "name": "sideways_window",
+            "start": "2025-06-01"
+          }
+        }
+      ]
+    },
+    {
+      "average_max_drawdown": 0.010977993441016153,
+      "average_return": 0.030280901647510912,
+      "definition": {
+        "asset_class": "equities_etf",
+        "cooldown_rules": "None in baseline; rotation naturally slows turnover",
+        "entry_rules": [
+          "Select top 3 ETFs by 60d return",
+          "Require price above 200d SMA",
+          "Require SPY risk-on regime"
+        ],
+        "exit_rules": [
+          "Exit on deselection",
+          "Exit when SPY regime turns risk-off"
+        ],
+        "features": [
+          "50d/200d trend",
+          "60d relative strength",
+          "20d realized volatility"
+        ],
+        "hypothesis": "Trading only the top-trending liquid ETFs during confirmed risk-on regimes should improve return quality and drawdown control.",
+        "implementation_complexity": "medium",
+        "known_failure_modes": [
+          "Fast regime reversals",
+          "Late-cycle concentration in one sector",
+          "Trend lag after macro shock"
+        ],
+        "market_regime_filter": "SPY above 200d SMA and 20d realized vol <= 2.5%",
+        "max_daily_trades": 3,
+        "max_positions": 3,
+        "minimum_data_required": "200 daily bars per symbol",
+        "name": "equity_etf_trend_regime_v1",
+        "notes": [
+          "The signal aligns cleanly with the existing ETF momentum and rotation architecture already present in the repo."
+        ],
+        "position_sizing": "Equal weight across up to 3 positions at 10k notional each in research simulation",
+        "primary_data_source": "Alpaca historical stock bars",
+        "recommended_next_step": "Convert the strongest variant into a paper-only strategy class with daily rebalance logging.",
+        "secondary_data_source": null,
+        "slippage_assumption": "3 bps spread and 3 bps slippage baseline",
+        "stop_loss": "Portfolio-level cash switch when SPY loses 200d trend or vol filter fails",
+        "take_profit": "Trend hold until deselection rather than fixed target",
+        "timeframe": "1Day",
+        "transaction_cost_assumption": "Moderate equity cost case",
+        "universe": [
+          "SPY",
+          "QQQ",
+          "IWM",
+          "DIA",
+          "XLK",
+          "XLF",
+          "XLE",
+          "XLV",
+          "XLY",
+          "XLP",
+          "TLT",
+          "GLD"
+        ]
+      },
+      "recommendation": "paper_validate",
+      "rejection_reason": null,
+      "robustness": 0.75,
+      "score": 90.57,
+      "score_components": {
+        "drawdown_behavior": 94.51,
+        "execution_realism": 88.56,
+        "implementation_fit": 88.0,
+        "return_quality": 100.0,
+        "risk_control": 95.61,
+        "robustness": 80.2,
+        "simplicity": 82.0
+      },
+      "total_trades": 127,
+      "window_results": [
+        {
+          "annualized_return": 0.10010762003283236,
+          "metrics": {
+            "max_drawdown": 0.010176667269857281,
+            "profit_factor": 2.678111795055463,
+            "sharpe": 3.42417153790557,
+            "sortino": 12.004381348976562,
+            "total_return": 0.03105530120892546,
+            "trade_count": 24,
+            "win_rate": 0.5
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.010709061124071741,
+            "total_return": 0.02669463249846898
+          },
+          "trades_per_day": 0.20512820512820512,
+          "window": {
+            "end": "2026-04-28",
+            "name": "recent_short",
+            "start": "2026-01-01"
+          }
+        },
+        {
+          "annualized_return": 0.08462852632161111,
+          "metrics": {
+            "max_drawdown": 0.01078430658243713,
+            "profit_factor": 2.8212922764602295,
+            "sharpe": 3.661519491874004,
+            "sortino": 10.350141166846441,
+            "total_return": 0.08390455513620235,
+            "trade_count": 68,
+            "win_rate": 0.5588235294117647
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.01214119251407581,
+            "total_return": 0.07155301479769219
+          },
+          "trades_per_day": 0.1878453038674033,
+          "window": {
+            "end": "2026-04-28",
+            "name": "medium_window",
+            "start": "2025-05-01"
+          }
+        },
+        {
+          "annualized_return": -0.06865100515470579,
+          "metrics": {
+            "max_drawdown": 0.019934824726963854,
+            "profit_factor": 0.23169714316600698,
+            "sharpe": -9.017921408218177,
+            "sortino": -11.94945705338371,
+            "total_return": -0.01700085819662645,
+            "trade_count": 19,
+            "win_rate": 0.3157894736842105
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.022088791238707346,
+            "total_return": -0.020415517098423253
+          },
+          "trades_per_day": 0.2159090909090909,
+          "window": {
+            "end": "2025-04-30",
+            "name": "prior_volatile_window",
+            "start": "2025-02-01"
+          }
+        },
+        {
+          "annualized_return": 0.09620386442540951,
+          "metrics": {
+            "max_drawdown": 0.0030161751848063433,
+            "profit_factor": 4.884980205821275,
+            "sharpe": 6.216842165910441,
+            "sortino": 57.59374911827268,
+            "total_return": 0.023164608441542296,
+            "trade_count": 16,
+            "win_rate": 0.5625
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.004818718177427509,
+            "total_return": 0.02025527452165018
+          },
+          "trades_per_day": 0.17582417582417584,
+          "window": {
+            "end": "2025-08-31",
+            "name": "sideways_window",
+            "start": "2025-06-01"
+          }
+        }
+      ]
+    },
+    {
+      "average_max_drawdown": 0.016078158587414255,
+      "average_return": -0.008014773744062885,
+      "definition": {
+        "asset_class": "crypto",
+        "cooldown_rules": "No same-bar re-entry; weekend filter evaluated separately",
+        "entry_rules": [
+          "Buy after close clears prior 20-bar high",
+          "Require 1.5x average volume",
+          "Require BTC above 50-bar average"
+        ],
+        "exit_rules": [
+          "2 ATR trailing stop",
+          "Exit under 10-bar mean",
+          "Exit after 24 bars"
+        ],
+        "features": [
+          "20-bar breakout",
+          "14/14 ATR expansion",
+          "20-bar volume shock",
+          "BTC 50-bar trend filter"
+        ],
+        "hypothesis": "High-liquidity crypto pairs can sustain breakouts after volatility compression when BTC confirms the regime.",
+        "implementation_complexity": "medium",
+        "known_failure_modes": [
+          "Weekend liquidity air pockets",
+          "False breakouts after news spikes",
+          "Cross-exchange basis drift"
+        ],
+        "market_regime_filter": "BTC above 50-bar average",
+        "max_daily_trades": 2,
+        "max_positions": 1,
+        "minimum_data_required": "60 four-hour bars per symbol",
+        "name": "crypto_momentum_volatility_expansion_v1",
+        "notes": [
+          "The setup is implementable with the repo\u2019s existing crypto strategy pattern, but it needs stricter shadow-fill evidence than the ETF ideas."
+        ],
+        "position_sizing": "4k notional single-name exposure",
+        "primary_data_source": "Binance public spot klines",
+        "recommended_next_step": "Promote only a weekday-biased paper variant if shadow fills support the slippage assumptions.",
+        "secondary_data_source": "Alpaca crypto daily bars for cross-check",
+        "slippage_assumption": "8 bps spread and 6 bps slippage baseline; stress case to 15/12 bps",
+        "stop_loss": "2 ATR trailing stop",
+        "take_profit": "Trailing exit rather than fixed target",
+        "timeframe": "4h",
+        "transaction_cost_assumption": "High crypto cost case",
+        "universe": [
+          "BTCUSDT",
+          "ETHUSDT",
+          "SOLUSDT",
+          "BNBUSDT",
+          "XRPUSDT",
+          "DOGEUSDT"
+        ]
+      },
+      "recommendation": "reject",
+      "rejection_reason": "failed at least half of research windows",
+      "robustness": 0.25,
+      "score": 65.48,
+      "score_components": {
+        "drawdown_behavior": 91.96,
+        "execution_realism": 83.81,
+        "implementation_fit": 76.0,
+        "return_quality": 0.0,
+        "risk_control": 93.57,
+        "robustness": 45.54,
+        "simplicity": 70.0
+      },
+      "total_trades": 180,
+      "window_results": [
+        {
+          "annualized_return": -0.09673884256017662,
+          "metrics": {
+            "max_drawdown": 0.01648343675919692,
+            "profit_factor": 0.047767900889175506,
+            "sharpe": -55.23788813651256,
+            "sortino": -66.0656360067352,
+            "total_return": -0.016037477208454592,
+            "trade_count": 25,
+            "win_rate": 0.08
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.01890045532395816,
+            "total_return": -0.018645917611501105
+          },
+          "trades_per_day": 0.43103448275862066,
+          "window": {
+            "end": "2026-04-28",
+            "name": "recent_short",
+            "start": "2026-03-01"
+          }
+        },
+        {
+          "annualized_return": -0.029807814465074522,
+          "metrics": {
+            "max_drawdown": 0.024968265748255072,
+            "profit_factor": 0.6035461302210692,
+            "sharpe": -8.344383166631669,
+            "sortino": -17.953202309295673,
+            "total_return": -0.019619778023927458,
+            "trade_count": 90,
+            "win_rate": 0.2777777777777778
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.03294325615737369,
+            "total_return": -0.02938125438280233
+          },
+          "trades_per_day": 0.37656903765690375,
+          "window": {
+            "end": "2026-04-28",
+            "name": "medium_window",
+            "start": "2025-09-01"
+          }
+        },
+        {
+          "annualized_return": -0.0757979680534967,
+          "metrics": {
+            "max_drawdown": 0.0195663269089417,
+            "profit_factor": 0.2031644761140271,
+            "sharpe": -26.803426734809722,
+            "sortino": -33.3749994369722,
+            "total_return": -0.018824839914731807,
+            "trade_count": 24,
+            "win_rate": 0.2916666666666667
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.021803344938154043,
+            "total_return": -0.021469936668765382
+          },
+          "trades_per_day": 0.2727272727272727,
+          "window": {
+            "end": "2025-04-30",
+            "name": "prior_volatile_window",
+            "start": "2025-02-01"
+          }
+        },
+        {
+          "annualized_return": 0.09302041524406279,
+          "metrics": {
+            "max_drawdown": 0.0032946049332633265,
+            "profit_factor": 2.7603954853058617,
+            "sharpe": 16.199443606210853,
+            "sortino": 58.73278470497887,
+            "total_return": 0.022423000170862316,
+            "trade_count": 41,
+            "win_rate": 0.6097560975609756
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.0036751270693294647,
+            "total_return": 0.017827608042005522
+          },
+          "trades_per_day": 0.45054945054945056,
+          "window": {
+            "end": "2025-08-31",
+            "name": "sideways_window",
+            "start": "2025-06-01"
+          }
+        }
+      ]
+    },
+    {
+      "average_max_drawdown": 0.2427031616724633,
+      "average_return": -0.24236082945767545,
+      "definition": {
+        "asset_class": "equities_intraday",
+        "cooldown_rules": "No re-entry same day after a stopped breakout",
+        "entry_rules": [
+          "Break above opening range high",
+          "Volume > 1.2x opening baseline",
+          "Close above VWAP proxy"
+        ],
+        "exit_rules": [
+          "Exit on range-midpoint failure",
+          "Exit on VWAP failure",
+          "Exit before session end"
+        ],
+        "features": [
+          "30m opening range",
+          "bar volume expansion",
+          "bar range expansion",
+          "VWAP confirmation"
+        ],
+        "hypothesis": "Liquid names that break the opening range on volume and range expansion can continue intraday before mean reversion dominates.",
+        "implementation_complexity": "medium",
+        "known_failure_modes": [
+          "False breakouts in chop",
+          "Spread expansion around catalysts",
+          "Low sample size outside momentum days"
+        ],
+        "market_regime_filter": "Implicit trend continuation only; no overnight holding",
+        "max_daily_trades": 1,
+        "max_positions": 1,
+        "minimum_data_required": "At least one full session of 15-minute bars per symbol-day",
+        "name": "opening_range_breakout_v1",
+        "notes": [
+          "The existing opening-range strategy class maps well to the entry and exit logic, but fill realism is the main constraint."
+        ],
+        "position_sizing": "Single 5k notional position",
+        "primary_data_source": "Alpaca historical stock bars",
+        "recommended_next_step": "If revisited, add live quote spread filters before further paper promotion.",
+        "secondary_data_source": null,
+        "slippage_assumption": "8 bps spread and 6 bps slippage baseline",
+        "stop_loss": "Opening-range midpoint",
+        "take_profit": "End-of-day liquidation or failed continuation exit",
+        "timeframe": "15Min",
+        "transaction_cost_assumption": "High intraday equity cost case",
+        "universe": [
+          "SPY",
+          "QQQ",
+          "IWM",
+          "AAPL",
+          "MSFT",
+          "NVDA",
+          "AMD",
+          "META",
+          "TSLA"
+        ]
+      },
+      "recommendation": "reject",
+      "rejection_reason": "failed at least half of research windows",
+      "robustness": 0.0,
+      "score": 10.93,
+      "score_components": {
+        "drawdown_behavior": 0.0,
+        "execution_realism": 0.0,
+        "implementation_fit": 74.0,
+        "return_quality": 0.0,
+        "risk_control": 2.92,
+        "robustness": 0.0,
+        "simplicity": 65.0
+      },
+      "total_trades": 6208,
+      "window_results": [
+        {
+          "annualized_return": -0.6506944792835815,
+          "metrics": {
+            "max_drawdown": 0.15391602654514355,
+            "profit_factor": 0.17795505270764064,
+            "sharpe": -27.245311079274085,
+            "sortino": -50.70048530753574,
+            "total_return": -0.15391602654514494,
+            "trade_count": 1019,
+            "win_rate": 0.11776251226692837
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.3174806854707975,
+            "total_return": -0.3174806854707978
+          },
+          "trades_per_day": 17.56896551724138,
+          "window": {
+            "end": "2026-04-28",
+            "name": "recent_short",
+            "start": "2026-03-01"
+          }
+        },
+        {
+          "annualized_return": -0.7454139163351976,
+          "metrics": {
+            "max_drawdown": 0.28913099299439243,
+            "profit_factor": 0.13214038303128517,
+            "sharpe": -30.37701810136642,
+            "sortino": -53.35620189880486,
+            "total_return": -0.2890065044705143,
+            "trade_count": 1862,
+            "win_rate": 0.09720730397422127
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.587872731592917,
+            "total_return": -0.5878727315929163
+          },
+          "trades_per_day": 20.46153846153846,
+          "window": {
+            "end": "2025-12-31",
+            "name": "medium_window",
+            "start": "2025-10-01"
+          }
+        },
+        {
+          "annualized_return": -0.7010005224954812,
+          "metrics": {
+            "max_drawdown": 0.2537535842189382,
+            "profit_factor": 0.21002736303841113,
+            "sharpe": -20.75483671656864,
+            "sortino": -30.638732896676846,
+            "total_return": -0.252542859117335,
+            "trade_count": 1559,
+            "win_rate": 0.15266196279666452
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.5027581228962911,
+            "total_return": -0.5027581228962894
+          },
+          "trades_per_day": 17.71590909090909,
+          "window": {
+            "end": "2025-04-30",
+            "name": "prior_volatile_window",
+            "start": "2025-02-01"
+          }
+        },
+        {
+          "annualized_return": -0.7231329503213524,
+          "metrics": {
+            "max_drawdown": 0.2740120429313791,
+            "profit_factor": 0.11418038396375077,
+            "sharpe": -34.03372375966564,
+            "sortino": -56.78253162693332,
+            "total_return": -0.2739779276977076,
+            "trade_count": 1768,
+            "win_rate": 0.09558823529411764
+          },
+          "stress_metrics": {
+            "max_drawdown": 0.5577570911227225,
+            "total_return": -0.5577570911227231
+          },
+          "trades_per_day": 19.428571428571427,
+          "window": {
+            "end": "2025-08-31",
+            "name": "sideways_window",
+            "start": "2025-06-01"
+          }
+        }
+      ]
+    }
+  ]
+}

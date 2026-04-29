@@ -1,0 +1,49 @@
+name: cross_market_high_beta_confirmation_v1
+version: 1
+status: candidate
+asset_class: equities_etf
+universe:
+  - QQQ
+  - IWM
+  - XLK
+  - XLY
+  - XLC
+data_sources:
+  - Alpaca historical stock bars
+  - Alpaca crypto daily bars
+timeframe: 1Day
+hypothesis: BTC and ETH trend confirmation can reduce weak high-beta equity entries and improve drawdown behavior during mixed risk appetite.
+features:
+  - High-beta ETF relative strength
+  - SPY trend
+  - BTC/ETH 50d confirmation
+entry_rules:
+  - Select top 2 high-beta ETFs by 60d strength
+  - Require SPY risk-on
+  - Require BTC and ETH above 50d trend
+exit_rules:
+  - Exit on deselection
+  - Exit when crypto confirmation fails
+  - Exit when SPY regime turns off
+risk_controls:
+  - stop_loss: Portfolio cash switch when equity or crypto regime breaks
+  - take_profit: Trend hold until deselection
+  - regime_filter: SPY above 200d SMA plus BTC/ETH above 50d averages
+  - cooldown: No extra cooldown in research baseline
+position_sizing: Equal weight across up to 2 positions
+backtest_summary:
+  score: 91.8
+  recommendation: paper_validate
+  average_return: 0.0106
+  average_max_drawdown: 0.0038
+  robustness: 0.75
+known_risks:
+  - Crypto filter can sideline valid equity trends
+  - Delayed confirmation after sharp equity rebounds
+  - Correlation breakdowns
+implementation_steps:
+  - data adapter integration
+  - strategy module wiring behind research-only gate
+  - backtest regression coverage
+  - paper-trading shadow validation
+  - kill-switch validation before any promotion review
