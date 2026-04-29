@@ -72,7 +72,19 @@ def _float_or_none(value: object) -> float | None:
     return parsed
 
 
-def _paper_position_market_values(settings: Settings) -> tuple[dict[str, float], str | None]:
+def _normalize_symbol(symbol: str) -> str:
+    normalized = symbol.strip().upper().replace("-", "/")
+    if not normalized or "/" in normalized:
+        return normalized
+    for quote in ("USDT", "USDC", "USD"):
+        if normalized.endswith(quote) and len(normalized) > len(quote):
+            base = normalized[: -len(quote)]
+            if base:
+                return f"{base}/{quote}"
+    return normalized
+
+
+def _paper_positions_snapshot(settings: Settings) -> tuple[dict[str, dict[str, float | str | None]], str | None]:
     result = subprocess.run(
         ["alpaca", "position", "list", "--quiet"],
         check=False,
@@ -90,19 +102,64 @@ def _paper_position_market_values(settings: Settings) -> tuple[dict[str, float],
     if not isinstance(payload, list):
         return {}, "unexpected alpaca position payload"
 
-    positions: dict[str, float] = {}
+    positions: dict[str, dict[str, float | str | None]] = {}
     for item in payload:
         if not isinstance(item, dict):
             continue
-        symbol = str(item.get("symbol") or "").upper()
+        symbol = _normalize_symbol(str(item.get("symbol") or ""))
         if not symbol:
             continue
         market_value = _float_or_none(item.get("market_value"))
         if market_value is None:
             market_value = _float_or_none(item.get("cost_basis"))
-        if market_value is not None:
-            positions[symbol] = abs(market_value)
+        qty = _float_or_none(item.get("qty_available"))
+        if qty is None:
+            qty = _float_or_none(item.get("qty"))
+        avg_entry_price = _float_or_none(item.get("avg_entry_price"))
+        positions[symbol] = {
+            "symbol": symbol,
+            "market_value": abs(market_value) if market_value is not None else None,
+            "qty": abs(qty) if qty is not None else None,
+            "avg_entry_price": avg_entry_price,
+        }
     return positions, None
+
+
+def _position_for_symbol(
+    positions: dict[str, dict[str, float | str | None]],
+    symbol: str,
+) -> dict[str, float | str | None] | None:
+    normalized = _normalize_symbol(symbol)
+    direct = positions.get(normalized)
+    if direct is not None:
+        return direct
+    compact = normalized.replace("/", "")
+    for key, value in positions.items():
+        if key.replace("/", "") == compact:
+            return value
+    return None
+
+
+def _holding_bars_by_symbol(order_state: dict[str, Any], *, as_of: date) -> dict[str, int]:
+    order_metadata = order_state.get("orders")
+    if not isinstance(order_metadata, dict):
+        return {}
+    first_seen: dict[str, date] = {}
+    for item in order_metadata.values():
+        if not isinstance(item, dict):
+            continue
+        symbol = _normalize_symbol(str(item.get("symbol") or ""))
+        submitted_at = item.get("submitted_at")
+        if not symbol or not isinstance(submitted_at, str):
+            continue
+        try:
+            submitted_date = datetime.fromisoformat(submitted_at.replace("Z", "+00:00")).date()
+        except ValueError:
+            continue
+        prior = first_seen.get(symbol)
+        if prior is None or submitted_date < prior:
+            first_seen[symbol] = submitted_date
+    return {symbol: max((as_of - opened).days, 0) for symbol, opened in first_seen.items()}
 
 
 def _paper_runtime_gate(settings: Settings) -> tuple[bool, tuple[str, ...]]:
@@ -161,18 +218,44 @@ def _write_order_state(shared: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
 
 
-def _limit_price_for(symbol: str, quotes: dict[str, object], *, buffer_bps: float, fallback: float | None = None) -> float | None:
+def _limit_price_for(
+    symbol: str,
+    quotes: dict[str, object],
+    *,
+    side: str,
+    buffer_bps: float,
+    fallback: float | None = None,
+) -> float | None:
     quote = quotes.get(symbol)
     ask = getattr(quote, "ask", None)
+    bid = getattr(quote, "bid", None)
     if ask is None and isinstance(quote, dict):
         ask = quote.get("ask")
+    if bid is None and isinstance(quote, dict):
+        bid = quote.get("bid")
     try:
-        value = float(ask)
+        ask_value = float(ask)
     except (TypeError, ValueError):
+        ask_value = 0.0
+    try:
+        bid_value = float(bid)
+    except (TypeError, ValueError):
+        bid_value = 0.0
+
+    value = ask_value
+    if side == "sell":
+        value = bid_value if bid_value > 0.0 else ask_value
+    if value <= 0.0:
         value = float(fallback or 0.0)
     if value <= 0.0:
         return None
-    return round(value * (1.0 + max(buffer_bps, 0.0) / 10_000.0), 2)
+    buffer = max(buffer_bps, 0.0) / 10_000.0
+    adjusted = value * (1.0 + buffer)
+    if side == "sell":
+        adjusted = value * (1.0 - buffer)
+    if adjusted <= 0.0:
+        return None
+    return round(adjusted, 2)
 
 
 def _client_order_id(strategy_name: str, symbol: str, trade_date: str, *, suffix: str = "entry") -> str:
@@ -259,6 +342,8 @@ def _execute_paper_entries(
     selected_orders: tuple[OrderIntent, ...],
     quotes: dict[str, object],
     market_clock: dict[str, Any],
+    positions_snapshot: dict[str, dict[str, float | str | None]] | None = None,
+    position_lookup_error: str | None = None,
 ) -> dict[str, Any]:
     enabled = parse_bool(settings.raw.get("PAPER_ENTRY_EXECUTION_ENABLED", "false"))
     gate_ok, gate_blocks = _paper_runtime_gate(settings)
@@ -298,8 +383,9 @@ def _execute_paper_entries(
     seen = set(str(item) for item in state.get("client_order_ids", []))
     submitted_ids: list[str] = list(seen)
     order_metadata = state.get("orders") if isinstance(state.get("orders"), dict) else {}
-    position_values: dict[str, float] | None = None
-    position_lookup_error: str | None = None
+    positions = dict(positions_snapshot or {})
+    if not positions and position_lookup_error is None:
+        positions, position_lookup_error = _paper_positions_snapshot(settings)
     engine = RiskEngine(settings.risk)
     env = _paper_cli_env(settings)
     today = date.today().isoformat().replace("-", "")
@@ -308,39 +394,44 @@ def _execute_paper_entries(
     upsize_threshold = _paper_entry_upsize_threshold(settings)
 
     for intent in selected_orders:
-        if intent.side != "buy" or intent.mode != "paper":
+        if intent.mode != "paper" or intent.side not in {"buy", "sell"}:
             continue
         asset_class = _asset_class_for_symbol(intent.symbol)
-        client_order_id = _client_order_id(intent.strategy_name, intent.symbol, today)
+        suffix = "entry" if intent.side == "buy" else "exit"
+        client_order_id = _client_order_id(intent.strategy_name, intent.symbol, today, suffix=suffix)
         entry: dict[str, Any] = {
             "symbol": intent.symbol,
-            "side": "buy",
+            "side": intent.side,
             "client_order_id": client_order_id,
             "submitted": False,
         }
         target_notional = _paper_entry_notional(settings, intent, bankroll=bankroll, max_notional=max_notional)
         notional = target_notional
-        entry["target_notional_usd"] = round(target_notional, 2)
+        if intent.side == "buy":
+            entry["target_notional_usd"] = round(target_notional, 2)
         if not market_open and asset_class != "crypto":
             entry["status"] = "blocked_market_closed"
             payload["orders"].append(entry)
             continue
-        limit_price = _limit_price_for(intent.symbol, quotes, buffer_bps=limit_buffer_bps)
+        limit_price = _limit_price_for(intent.symbol, quotes, side=intent.side, buffer_bps=limit_buffer_bps)
         if limit_price is None:
             entry["status"] = "blocked_missing_quote"
             payload["orders"].append(entry)
             continue
         entry["limit_price"] = limit_price
-        if client_order_id in seen:
+        if position_lookup_error:
+            entry["position_lookup_error"] = position_lookup_error
+        position = _position_for_symbol(positions, intent.symbol)
+        current_notional = _float_or_none(position.get("market_value")) if isinstance(position, dict) else None
+        current_qty = _float_or_none(position.get("qty")) if isinstance(position, dict) else None
+        if current_notional is not None:
+            entry["current_position_notional_usd"] = round(current_notional, 2)
+        if current_qty is not None:
+            entry["current_position_qty"] = round(current_qty, 6)
+
+        if intent.side == "buy" and client_order_id in seen:
             stored_entry = order_metadata.get(client_order_id) if isinstance(order_metadata, dict) else None
             stored_notional = _float_or_none(stored_entry.get("notional_usd")) if isinstance(stored_entry, dict) else None
-            if position_values is None:
-                position_values, position_lookup_error = _paper_position_market_values(settings)
-            current_notional = position_values.get(intent.symbol.upper()) if position_values is not None else None
-            if current_notional is not None:
-                entry["current_position_notional_usd"] = round(current_notional, 2)
-            if position_lookup_error:
-                entry["position_lookup_error"] = position_lookup_error
             observed_notional = current_notional if current_notional is not None else stored_notional
             if observed_notional is None:
                 entry["status"] = "already_submitted_position_unknown"
@@ -365,11 +456,25 @@ def _execute_paper_entries(
             client_order_id = upsize_client_order_id
             notional = min(max(target_notional - observed_notional, 0.0), max_notional)
             entry["upsize_from_notional_usd"] = round(observed_notional, 2)
-        if notional <= 0.0:
-            entry["status"] = "blocked_non_positive_notional"
-            payload["orders"].append(entry)
-            continue
-        quantity = max(notional / limit_price, 0.0)
+
+        if intent.side == "buy":
+            if notional <= 0.0:
+                entry["status"] = "blocked_non_positive_notional"
+                payload["orders"].append(entry)
+                continue
+            quantity = max(notional / limit_price, 0.0)
+        else:
+            if client_order_id in seen:
+                entry["status"] = "already_submitted"
+                payload["orders"].append(entry)
+                continue
+            if current_qty is None or current_qty <= 0.0:
+                entry["status"] = "blocked_no_position"
+                payload["orders"].append(entry)
+                continue
+            quantity = current_qty
+            notional = round(abs(quantity * limit_price), 2)
+
         sized_intent = replace(intent, quantity=quantity, notional=notional)
         approved = engine.evaluate_intent(
             sized_intent.with_risk_decision(approved=False, blocks=()),
@@ -398,7 +503,7 @@ def _execute_paper_entries(
             "--symbol",
             intent.symbol,
             "--side",
-            "buy",
+            intent.side,
             "--type",
             "limit",
             "--limit-price",
@@ -421,12 +526,21 @@ def _execute_paper_entries(
             submitted_ids.append(client_order_id)
             trades_today += 1
             if isinstance(order_metadata, dict):
-                order_metadata[client_order_id] = {
-                    "symbol": intent.symbol,
-                    "notional_usd": round(notional, 2),
-                    "target_notional_usd": round(target_notional, 2),
-                    "submitted_at": datetime.now(UTC).isoformat(),
-                }
+                if intent.side == "sell":
+                    for order_key, order_item in list(order_metadata.items()):
+                        if isinstance(order_item, dict) and _normalize_symbol(str(order_item.get("symbol") or "")) == _normalize_symbol(intent.symbol):
+                            order_metadata.pop(order_key, None)
+                else:
+                    order_metadata[client_order_id] = {
+                        "symbol": intent.symbol,
+                        "side": intent.side,
+                        "notional_usd": round(notional, 2),
+                        "target_notional_usd": round(target_notional, 2),
+                        "submitted_at": datetime.now(UTC).isoformat(),
+                    }
+            if intent.side == "sell" and isinstance(position, dict):
+                position["qty"] = 0.0
+                position["market_value"] = 0.0
         else:
             entry["status"] = "submit_failed"
             entry["error"] = (result.stderr or result.stdout).strip()[:500]
@@ -487,6 +601,23 @@ def run_once(settings: Settings) -> dict[str, Any]:
     overlay_mode = _strategy_mode(settings, "PAPER_STRATEGY_OVERLAY_MODE", default="paper_shadow")
     reversion_mode = _strategy_mode(settings, "PAPER_STRATEGY_REVERSION_MODE", default="paper_shadow")
     universe = tuple(sorted(set(default_strategy.config.universe + overlay_strategy.config.universe + reversion_strategy.config.universe)))
+    managed_universe = set(universe)
+    order_state = _load_order_state(shared)
+    positions_snapshot, position_lookup_error = _paper_positions_snapshot(settings)
+    position_symbols = sorted(
+        symbol
+        for symbol, item in positions_snapshot.items()
+        if symbol in managed_universe and (_float_or_none(item.get("qty")) or 0.0) > 0.0
+    )
+    holding_bars = _holding_bars_by_symbol(order_state, as_of=date.today())
+    reversion_positions = {
+        symbol: {
+            "entry_price": _float_or_none(item.get("avg_entry_price")),
+            "holding_bars": holding_bars.get(symbol, 0),
+        }
+        for symbol, item in positions_snapshot.items()
+        if symbol in set(reversion_strategy.config.universe) and (_float_or_none(item.get("qty")) or 0.0) > 0.0
+    }
 
     start = _lookback_start()
     end = _today()
@@ -498,6 +629,7 @@ def run_once(settings: Settings) -> dict[str, Any]:
     default_rebalance = default_strategy.rebalance(
         bars_by_symbol=equity_bars,
         quotes_by_symbol=quotes,
+        current_positions=tuple(position_symbols),
         mode=primary_mode,
         kill_switch_enabled=kill_switch_enabled,
         portfolio_value=_paper_entry_bankroll(settings),
@@ -506,21 +638,25 @@ def run_once(settings: Settings) -> dict[str, Any]:
         bars_by_symbol=equity_bars,
         crypto_bars_by_symbol=crypto_bars,
         quotes_by_symbol=quotes,
+        current_positions=tuple(position_symbols),
         mode=overlay_mode,
         kill_switch_enabled=kill_switch_enabled,
     )
     reversion_rebalance = reversion_strategy.rebalance(
         bars_by_symbol=equity_bars,
         quotes_by_symbol=quotes,
+        positions_by_symbol=reversion_positions,
         mode=reversion_mode,
         kill_switch_enabled=kill_switch_enabled,
     )
     paper_execution = _execute_paper_entries(
         settings,
         shared=shared,
-        selected_orders=tuple(order for order in default_rebalance.orders if order.side == "buy"),
+        selected_orders=default_rebalance.orders,
         quotes=quotes,
         market_clock=_market_clock(settings),
+        positions_snapshot=positions_snapshot,
+        position_lookup_error=position_lookup_error,
     )
     payload = {
         "ok": True,
@@ -528,6 +664,7 @@ def run_once(settings: Settings) -> dict[str, Any]:
         "live_trading_changed": False,
         "timestamp": datetime.now(UTC).isoformat(),
         "kill_switch_enabled": kill_switch_enabled,
+        "position_lookup_error": position_lookup_error,
         "paper_execution": paper_execution,
         "strategies": [
             default_rebalance.to_dashboard_payload(),

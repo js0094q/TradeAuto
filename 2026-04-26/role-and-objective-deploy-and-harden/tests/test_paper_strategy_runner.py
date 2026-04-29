@@ -88,6 +88,8 @@ class PaperStrategyRunnerTests(unittest.TestCase):
 
             def fake_run(command: list[str], **kwargs: object) -> object:
                 captured.append((command, dict(kwargs.get("env") or {})))
+                if command[:3] == ["alpaca", "position", "list"]:
+                    return SimpleNamespace(returncode=0, stdout="[]", stderr="")
                 return SimpleNamespace(returncode=0, stdout='{"id":"paper-order"}', stderr="")
 
             with (
@@ -102,7 +104,9 @@ class PaperStrategyRunnerTests(unittest.TestCase):
             self.assertEqual(execution["status"], "complete")
             self.assertGreaterEqual(len(execution["orders"]), 1)
             self.assertTrue(any(order["submitted"] for order in execution["orders"]))
-            first_command, first_env = captured[0]
+            submits = [(command, env) for command, env in captured if command[:3] == ["alpaca", "order", "submit"]]
+            self.assertTrue(submits)
+            first_command, first_env = submits[0]
             self.assertEqual(first_command[:3], ["alpaca", "order", "submit"])
             self.assertIn("--client-order-id", first_command)
             client_order_id = first_command[first_command.index("--client-order-id") + 1]
@@ -135,6 +139,8 @@ class PaperStrategyRunnerTests(unittest.TestCase):
             )
 
             def fake_run(command: list[str], **_kwargs: object) -> object:
+                if command[:3] == ["alpaca", "position", "list"]:
+                    return SimpleNamespace(returncode=0, stdout="[]", stderr="")
                 captured.append(command)
                 return SimpleNamespace(returncode=0, stdout='{"id":"paper-order"}', stderr="")
 
@@ -151,8 +157,10 @@ class PaperStrategyRunnerTests(unittest.TestCase):
             submitted = [order for order in execution["orders"] if order["submitted"]]
             self.assertTrue(submitted)
             self.assertTrue(all(order["notional_usd"] == 25000.0 for order in submitted))
-            qty_index = captured[0].index("--qty") + 1
-            self.assertGreater(float(captured[0][qty_index]), 100.0)
+            submit_commands = [command for command in captured if command[:3] == ["alpaca", "order", "submit"]]
+            self.assertTrue(submit_commands)
+            qty_index = submit_commands[0].index("--qty") + 1
+            self.assertGreater(float(submit_commands[0][qty_index]), 100.0)
 
     def test_duplicate_entry_can_be_upsized_when_existing_paper_position_is_tiny(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -229,12 +237,17 @@ class PaperStrategyRunnerTests(unittest.TestCase):
             with (
                 patch.object(paper_strategy_runner, "_provider", return_value=FakeProvider()),
                 patch.object(paper_strategy_runner, "_market_clock", return_value={"is_open": False}),
-                patch.object(paper_strategy_runner.subprocess, "run") as broker_call,
+                patch.object(
+                    paper_strategy_runner.subprocess,
+                    "run",
+                    return_value=SimpleNamespace(returncode=0, stdout="[]", stderr=""),
+                ) as broker_call,
             ):
                 payload = paper_strategy_runner.run_once(paper_settings)
 
             self.assertEqual(payload["paper_execution"]["status"], "blocked_market_closed")
-            broker_call.assert_not_called()
+            submit_calls = [call for call in broker_call.call_args_list if call.args and call.args[0][:3] == ["alpaca", "order", "submit"]]
+            self.assertFalse(submit_calls)
 
     def test_crypto_entries_can_run_when_equity_market_is_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -273,7 +286,48 @@ class PaperStrategyRunnerTests(unittest.TestCase):
 
             self.assertEqual(execution["status"], "complete")
             self.assertTrue(any(order["status"] == "submitted" for order in execution["orders"]))
-            broker_call.assert_called_once()
+            submit_calls = [call for call in broker_call.call_args_list if call.args and call.args[0][:3] == ["alpaca", "order", "submit"]]
+            self.assertEqual(len(submit_calls), 1)
+
+    def test_run_once_submits_sell_exit_for_existing_position(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, "state").mkdir()
+            Path(tmpdir, "state", "kill_switch.enabled").write_text("disabled\n", encoding="utf-8")
+            captured: list[list[str]] = []
+            paper_settings = settings(
+                tmpdir,
+                overrides={
+                    "PAPER_ENTRY_EXECUTION_ENABLED": "true",
+                    "PAPER_ENTRY_NOTIONAL_USD": "1.00",
+                    "PAPER_ENTRY_ORDER_TYPE": "limit",
+                    "MAX_TRADES_PER_DAY": "10",
+                },
+            )
+
+            def fake_run(command: list[str], **_kwargs: object) -> object:
+                if command[:3] == ["alpaca", "position", "list"]:
+                    return SimpleNamespace(
+                        returncode=0,
+                        stdout='[{"symbol":"XLE","qty":"0.10","market_value":"10.00","avg_entry_price":"100.00"}]',
+                        stderr="",
+                    )
+                if command[:3] == ["alpaca", "order", "submit"]:
+                    captured.append(command)
+                    return SimpleNamespace(returncode=0, stdout='{"id":"paper-order"}', stderr="")
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            with (
+                patch.object(paper_strategy_runner, "_provider", return_value=FakeProvider()),
+                patch.object(paper_strategy_runner, "_market_clock", return_value={"is_open": True}),
+                patch.object(paper_strategy_runner.subprocess, "run", side_effect=fake_run),
+            ):
+                payload = paper_strategy_runner.run_once(paper_settings)
+
+            execution = payload["paper_execution"]
+            submitted_sells = [order for order in execution["orders"] if order.get("submitted") and order.get("side") == "sell"]
+            self.assertTrue(submitted_sells)
+            submitted_sell_commands = [command for command in captured if "--side" in command and command[command.index("--side") + 1] == "sell"]
+            self.assertTrue(submitted_sell_commands)
 
 
 if __name__ == "__main__":
