@@ -8,6 +8,7 @@ import os
 import signal
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -37,6 +38,8 @@ from trading_system.trading.risk import AccountState, ExecutionGateState, Market
 LOGGER = logging.getLogger("trading_system.trading.live_strategy_runner")
 LIVE_STRATEGY_CONFIRMATION = "ENABLE_LIVE_STRATEGY_ORDERS"
 DEFAULT_LIVE_LIMIT_BUFFER_BPS = 10.0
+DEFAULT_LIVE_MARKET_DATA_MAX_ATTEMPTS = 3
+DEFAULT_LIVE_MARKET_DATA_RETRY_DELAY_SECONDS = 2.0
 
 
 def _shared_dir(settings: Settings) -> Path:
@@ -213,6 +216,55 @@ def _limit_buffer_bps(settings: Settings) -> float:
         settings.raw.get("LIVE_ENTRY_LIMIT_BUFFER_BPS"),
         default=DEFAULT_LIVE_LIMIT_BUFFER_BPS,
     )
+
+
+def _positive_int(value: str | None, *, default: int) -> int:
+    try:
+        parsed = int(value) if value not in (None, "") else default
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _market_data_max_attempts(settings: Settings) -> int:
+    return _positive_int(
+        settings.raw.get("LIVE_MARKET_DATA_MAX_ATTEMPTS"),
+        default=DEFAULT_LIVE_MARKET_DATA_MAX_ATTEMPTS,
+    )
+
+
+def _market_data_retry_delay_seconds(settings: Settings) -> float:
+    return _positive_float(
+        settings.raw.get("LIVE_MARKET_DATA_RETRY_DELAY_SECONDS"),
+        default=DEFAULT_LIVE_MARKET_DATA_RETRY_DELAY_SECONDS,
+    )
+
+
+def _retry_market_data_fetch(
+    action: Callable[[], Any],
+    *,
+    description: str,
+    max_attempts: int,
+    base_delay_seconds: float,
+) -> Any:
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            return action()
+        except MarketDataProviderError as exc:
+            if attempt >= max_attempts:
+                raise
+            delay = base_delay_seconds * (2 ** (attempt - 1))
+            LOGGER.warning(
+                "%s market data fetch failed attempt %s/%s; retrying in %.1fs: %s",
+                description,
+                attempt,
+                max_attempts,
+                delay,
+                _market_data_error_text(exc),
+            )
+            time.sleep(delay)
 
 
 def _live_order_notional(
@@ -594,11 +646,23 @@ def run_once(settings: Settings) -> dict[str, Any]:
     previous_status = _load_status(shared)
     fallback_used = False
     market_data_error: str | None = None
+    market_data_attempts = _market_data_max_attempts(settings)
+    market_data_delay = _market_data_retry_delay_seconds(settings)
     strategies: list[dict[str, Any]] = []
     try:
-        equity_bars = provider.fetch_bars(universe, "1Day", start, end)
+        equity_bars = _retry_market_data_fetch(
+            lambda: provider.fetch_bars(universe, "1Day", start, end),
+            description="live bars",
+            max_attempts=market_data_attempts,
+            base_delay_seconds=market_data_delay,
+        )
         quote_symbols = tuple(dict.fromkeys((*universe, *position_symbols)))
-        quotes = provider.fetch_latest_quote(quote_symbols)
+        quotes = _retry_market_data_fetch(
+            lambda: provider.fetch_latest_quote(quote_symbols),
+            description="live quotes",
+            max_attempts=market_data_attempts,
+            base_delay_seconds=market_data_delay,
+        )
         rebalance = strategy.rebalance(
             bars_by_symbol=equity_bars,
             quotes_by_symbol=quotes,
@@ -618,7 +682,23 @@ def run_once(settings: Settings) -> dict[str, Any]:
         strategies = previous_strategies if isinstance(previous_strategies, list) else []
         fallback_used = bool(selected_orders)
         if fallback_used:
-            quotes = provider.fetch_latest_quote(quote_symbols)
+            try:
+                quotes = _retry_market_data_fetch(
+                    lambda: provider.fetch_latest_quote(quote_symbols),
+                    description="live exit fallback quotes",
+                    max_attempts=market_data_attempts,
+                    base_delay_seconds=market_data_delay,
+                )
+            except MarketDataProviderError as quote_exc:
+                LOGGER.error("exit fallback quote data unavailable: %s", quote_exc)
+                market_data_error = (
+                    market_data_error
+                    + "; exit fallback quote data unavailable: "
+                    + _market_data_error_text(quote_exc)
+                )
+                selected_orders = ()
+                fallback_used = False
+                quotes = {}
         else:
             quotes = {}
     live_execution = _execute_live_orders(

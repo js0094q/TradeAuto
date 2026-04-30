@@ -46,6 +46,18 @@ class FailingBarsProvider(FakeProvider):
         raise MarketDataProviderError("bars unavailable")
 
 
+class FlakyBarsProvider(FakeProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.fetch_bar_calls = 0
+
+    def fetch_bars(self, symbols: tuple[str, ...], timeframe: str, start: str, end: str | None = None) -> dict[str, list[object]]:
+        self.fetch_bar_calls += 1
+        if self.fetch_bar_calls == 1:
+            raise MarketDataProviderError("connection reset by peer")
+        return super().fetch_bars(symbols, timeframe, start, end)
+
+
 def settings(tmpdir: str, overrides: dict[str, str] | None = None) -> object:
     values = {
         "APP_ENV": "live",
@@ -370,6 +382,7 @@ class LiveStrategyRunnerTests(unittest.TestCase):
                 {
                     "LIVE_STRATEGY_EXECUTION_ENABLED": "true",
                     "LIVE_STRATEGY_CONFIRMATION": live_strategy_runner.LIVE_STRATEGY_CONFIRMATION,
+                    "LIVE_MARKET_DATA_MAX_ATTEMPTS": "1",
                     "MAX_TRADES_PER_DAY": "10",
                 },
             )
@@ -389,6 +402,50 @@ class LiveStrategyRunnerTests(unittest.TestCase):
             sell_commands = [command for command in captured if "--side" in command and command[command.index("--side") + 1] == "sell"]
             self.assertTrue(sell_commands)
             self.assertEqual(sell_commands[0][sell_commands[0].index("--symbol") + 1], "NEE")
+
+    def test_live_strategy_retries_transient_bar_failure_before_blocking(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, "state").mkdir()
+            Path(tmpdir, "state", "kill_switch.enabled").write_text("disabled\n", encoding="utf-8")
+            captured: list[list[str]] = []
+            sleeps: list[float] = []
+
+            def fake_run(command: list[str], **_kwargs: object) -> object:
+                if "account" in command:
+                    return SimpleNamespace(returncode=0, stdout='{"equity":"100","buying_power":"100"}', stderr="")
+                if "position" in command:
+                    return SimpleNamespace(returncode=0, stdout="[]", stderr="")
+                if "clock" in command:
+                    return SimpleNamespace(returncode=0, stdout='{"is_open":true}', stderr="")
+                if "order" in command and "submit" in command:
+                    captured.append(command)
+                    return SimpleNamespace(returncode=0, stdout='{"id":"live-order"}', stderr="")
+                return SimpleNamespace(returncode=1, stdout="", stderr="unexpected command")
+
+            live_settings = settings(
+                tmpdir,
+                {
+                    "LIVE_STRATEGY_EXECUTION_ENABLED": "true",
+                    "LIVE_STRATEGY_CONFIRMATION": live_strategy_runner.LIVE_STRATEGY_CONFIRMATION,
+                    "MAX_TRADES_PER_DAY": "10",
+                },
+            )
+            provider = FlakyBarsProvider()
+            with (
+                patch.object(live_strategy_runner, "_provider", return_value=provider),
+                patch.object(live_strategy_runner.LOGGER, "warning") as warning,
+                patch.object(live_strategy_runner.time, "sleep", side_effect=sleeps.append),
+                patch.object(live_strategy_runner.subprocess, "run", side_effect=fake_run),
+            ):
+                payload = live_strategy_runner.run_once(live_settings)
+
+            execution = payload["live_execution"]
+            self.assertEqual(provider.fetch_bar_calls, 2)
+            self.assertTrue(warning.called)
+            self.assertEqual(sleeps, [live_strategy_runner.DEFAULT_LIVE_MARKET_DATA_RETRY_DELAY_SECONDS])
+            self.assertEqual(execution["status"], "complete")
+            self.assertNotIn("market_data_error", execution)
+            self.assertTrue(captured)
 
 
 if __name__ == "__main__":
