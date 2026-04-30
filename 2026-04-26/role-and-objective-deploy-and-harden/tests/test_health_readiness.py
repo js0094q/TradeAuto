@@ -126,6 +126,10 @@ class HealthReadinessTests(unittest.TestCase):
                 json.dumps({"client_order_ids": ["etrv1-20260430-QQQ-live-entry"]}),
                 encoding="utf-8",
             )
+            (log_dir / "live.err.log").write_text(
+                "2026-04-30 13:29:15,238 ERROR market data unavailable\n",
+                encoding="utf-8",
+            )
             (log_dir / "live_strategy_rebalances.jsonl").write_text(json.dumps(live_payload) + "\n", encoding="utf-8")
             settings = _paper_settings(
                 tmpdir,
@@ -150,6 +154,7 @@ class HealthReadinessTests(unittest.TestCase):
         self.assertTrue(metrics["live_runtime_gate_passed"])
         self.assertEqual(metrics["last_trade_time"], "2026-04-30T13:30:00Z")
         self.assertEqual(metrics["open_orders"], 1)
+        self.assertIsNone(metrics["latest_live_error"])
 
 
 def _paper_settings(tmpdir: str, overrides: dict[str, str] | None = None) -> object:

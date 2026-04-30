@@ -113,7 +113,6 @@ def metrics_payload(settings: Settings) -> dict[str, Any]:
     live_activity = _latest_live_activity(shared / "logs" / "live_strategy_rebalances.jsonl")
     api_error = _latest_error_line(shared / "logs" / "api.err.log")
     paper_error = _latest_error_line(shared / "logs" / "paper.err.log")
-    live_error = _latest_live_engine_error(shared / "logs" / "live.err.log")
     telegram_warning = _latest_warning_line(shared / "logs" / "telegram.err.log")
     paper_strategy = paper_strategy_status_payload(settings)
     paper_strategies = paper_strategy.get("strategies") if isinstance(paper_strategy.get("strategies"), list) else []
@@ -123,6 +122,10 @@ def metrics_payload(settings: Settings) -> dict[str, Any]:
         if isinstance(first_strategy, dict):
             active_strategy = first_strategy.get("strategy_name")
     live_strategy = live_strategy_status_payload(settings)
+    live_error = _suppress_stale_live_error(
+        _latest_live_engine_error(shared / "logs" / "live.err.log"),
+        live_strategy,
+    )
     live_strategies = live_strategy.get("strategies") if isinstance(live_strategy.get("strategies"), list) else []
     if live_strategies:
         first_live_strategy = live_strategies[0]
@@ -360,6 +363,39 @@ def _latest_live_engine_error(path: Path) -> str | None:
                 return None
             return line
     return None
+
+
+def _suppress_stale_live_error(error_line: str | None, live_strategy: dict[str, Any]) -> str | None:
+    if not error_line:
+        return None
+    live_execution = live_strategy.get("live_execution")
+    if not isinstance(live_execution, dict) or live_execution.get("status") != "complete":
+        return error_line
+    error_time = _log_line_timestamp(error_line)
+    status_time = _payload_timestamp(live_strategy.get("timestamp") or live_strategy.get("file_updated_at"))
+    if error_time is not None and status_time is not None and status_time > error_time:
+        return None
+    return error_line
+
+
+def _log_line_timestamp(line: str) -> datetime | None:
+    try:
+        return datetime.strptime(line[:23], "%Y-%m-%d %H:%M:%S,%f").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+
+
+def _payload_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    normalized = value.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _process_states() -> dict[str, bool]:

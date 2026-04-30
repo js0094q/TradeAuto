@@ -509,7 +509,8 @@ def run_once(settings: Settings) -> dict[str, Any]:
     end = _today()
     LOGGER.info("fetching live strategy market data universe=%s start=%s end=%s", ",".join(universe), start, end)
     equity_bars = provider.fetch_bars(universe, "1Day", start, end)
-    quotes = provider.fetch_latest_quote(universe)
+    quote_symbols = tuple(dict.fromkeys((*universe, *position_symbols)))
+    quotes = provider.fetch_latest_quote(quote_symbols)
     account_equity = _float_or_none(account.get("equity")) or 0.0
     rebalance = strategy.rebalance(
         bars_by_symbol=equity_bars,

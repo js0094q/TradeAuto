@@ -13,6 +13,9 @@ from trading_system.trading import live_strategy_runner
 
 
 class FakeProvider:
+    def __init__(self) -> None:
+        self.latest_quote_symbols: tuple[str, ...] = ()
+
     def fetch_bars(self, symbols: tuple[str, ...], timeframe: str, start: str, end: str | None = None) -> dict[str, list[object]]:
         drifts = {
             "SPY": 0.12,
@@ -31,6 +34,7 @@ class FakeProvider:
         return {symbol: bars_from_prices(symbol, trend_prices(drift=drifts.get(symbol, 0.2))) for symbol in symbols}
 
     def fetch_latest_quote(self, symbols: tuple[str, ...]) -> dict[str, dict[str, float]]:
+        self.latest_quote_symbols = symbols
         return default_quotes(symbols)
 
 
@@ -177,7 +181,7 @@ class LiveStrategyRunnerTests(unittest.TestCase):
                 if "position" in command:
                     return SimpleNamespace(
                         returncode=0,
-                        stdout='[{"symbol":"XLE","qty":"0.5","market_value":"25"}]',
+                        stdout='[{"symbol":"NEE","qty":"0.5","market_value":"25"}]',
                         stderr="",
                     )
                 if "clock" in command:
@@ -192,19 +196,22 @@ class LiveStrategyRunnerTests(unittest.TestCase):
                 {
                     "LIVE_STRATEGY_EXECUTION_ENABLED": "true",
                     "LIVE_STRATEGY_CONFIRMATION": live_strategy_runner.LIVE_STRATEGY_CONFIRMATION,
+                    "MAX_TRADES_PER_DAY": "10",
                 },
             )
+            provider = FakeProvider()
             with (
-                patch.object(live_strategy_runner, "_provider", return_value=FakeProvider()),
+                patch.object(live_strategy_runner, "_provider", return_value=provider),
                 patch.object(live_strategy_runner.subprocess, "run", side_effect=fake_run),
             ):
                 payload = live_strategy_runner.run_once(live_settings)
 
             self.assertEqual(payload["live_execution"]["status"], "complete")
+            self.assertIn("NEE", provider.latest_quote_symbols)
             sell_commands = [command for command in captured if "--side" in command and command[command.index("--side") + 1] == "sell"]
             self.assertTrue(sell_commands)
             sell = sell_commands[0]
-            self.assertEqual(sell[sell.index("--symbol") + 1], "XLE")
+            self.assertEqual(sell[sell.index("--symbol") + 1], "NEE")
             self.assertEqual(sell[sell.index("--qty") + 1], "0.500000")
             client_order_id = sell[sell.index("--client-order-id") + 1]
             self.assertIn("-live-exit", client_order_id)
