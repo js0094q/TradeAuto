@@ -3,7 +3,13 @@ from __future__ import annotations
 from fastapi import FastAPI, Header, HTTPException
 
 from trading_system.config import load_settings, validate_settings
-from trading_system.health import health_payload, metrics_payload, paper_strategy_status_payload, readiness_payload
+from trading_system.health import (
+    health_payload,
+    live_strategy_status_payload,
+    metrics_payload,
+    paper_strategy_status_payload,
+    readiness_payload,
+)
 from trading_system.kill_switch import KillSwitch
 
 
@@ -40,6 +46,12 @@ def metrics(x_admin_token: str | None = Header(default=None)) -> dict:
 def paper_strategy(x_admin_token: str | None = Header(default=None)) -> dict:
     require_admin_token(x_admin_token)
     return paper_strategy_status_payload(settings)
+
+
+@app.get("/live-strategy")
+def live_strategy(x_admin_token: str | None = Header(default=None)) -> dict:
+    require_admin_token(x_admin_token)
+    return live_strategy_status_payload(settings)
 
 
 @app.post("/admin/kill")

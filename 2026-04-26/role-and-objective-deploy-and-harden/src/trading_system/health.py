@@ -107,8 +107,10 @@ def metrics_payload(settings: Settings) -> dict[str, Any]:
     except OSError:
         kill_switch_enabled = True
     process_states = _process_states()
-    paper_order_state = _paper_order_state(shared)
+    paper_order_state = _order_state(shared / "state" / "paper_entry_orders.json")
+    live_order_state = _order_state(shared / "state" / "live_strategy_orders.json")
     paper_activity = _latest_paper_activity(shared / "logs" / "paper_strategy_rebalances.jsonl")
+    live_activity = _latest_live_activity(shared / "logs" / "live_strategy_rebalances.jsonl")
     api_error = _latest_error_line(shared / "logs" / "api.err.log")
     paper_error = _latest_error_line(shared / "logs" / "paper.err.log")
     live_error = _latest_live_engine_error(shared / "logs" / "live.err.log")
@@ -120,7 +122,7 @@ def metrics_payload(settings: Settings) -> dict[str, Any]:
         first_strategy = paper_strategies[0]
         if isinstance(first_strategy, dict):
             active_strategy = first_strategy.get("strategy_name")
-    live_strategy = _live_strategy_status(shared)
+    live_strategy = live_strategy_status_payload(settings)
     live_strategies = live_strategy.get("strategies") if isinstance(live_strategy.get("strategies"), list) else []
     if live_strategies:
         first_live_strategy = live_strategies[0]
@@ -129,10 +131,13 @@ def metrics_payload(settings: Settings) -> dict[str, Any]:
     paper_execution = paper_strategy.get("paper_execution")
     live_execution = live_strategy.get("live_execution")
     market_open_status = "unknown"
-    if isinstance(paper_execution, dict) and isinstance(paper_execution.get("market_open"), bool):
-        market_open_status = "open" if paper_execution["market_open"] else "closed"
-    elif isinstance(live_execution, dict) and isinstance(live_execution.get("market_open"), bool):
-        market_open_status = "open" if live_execution["market_open"] else "closed"
+    execution_priority = (
+        (live_execution, paper_execution) if settings.is_live else (paper_execution, live_execution)
+    )
+    for execution_item in execution_priority:
+        if isinstance(execution_item, dict) and isinstance(execution_item.get("market_open"), bool):
+            market_open_status = "open" if execution_item["market_open"] else "closed"
+            break
     runtime_gate_blocks = ()
     if isinstance(paper_execution, dict):
         maybe_blocks = paper_execution.get("runtime_gate_blocks")
@@ -143,6 +148,9 @@ def metrics_payload(settings: Settings) -> dict[str, Any]:
         maybe_live_blocks = live_execution.get("runtime_gate_blocks")
         if isinstance(maybe_live_blocks, list):
             live_runtime_gate_blocks = tuple(str(item) for item in maybe_live_blocks)
+
+    activity = live_activity if settings.is_live else paper_activity
+    order_state = live_order_state if settings.is_live else paper_order_state
 
     return {
         "uptime_seconds": round(time.time() - STARTED_AT, 3),
@@ -155,17 +163,22 @@ def metrics_payload(settings: Settings) -> dict[str, Any]:
             else "unknown"
         ),
         "market_open_status": market_open_status,
-        "data_freshness": str(paper_strategy.get("timestamp") or paper_strategy.get("file_updated_at") or "unknown"),
-        "open_positions": len(paper_activity["latest_selected_symbols"]) or None,
-        "open_orders": paper_order_state.get("client_order_ids_count"),
+        "data_freshness": str(
+            (live_strategy if settings.is_live else paper_strategy).get("timestamp")
+            or (live_strategy if settings.is_live else paper_strategy).get("file_updated_at")
+            or "unknown"
+        ),
+        "open_positions": len(activity["latest_selected_symbols"]) or None,
+        "open_orders": order_state.get("client_order_ids_count"),
         "realized_pnl": None,
         "unrealized_pnl": None,
-        "risk_rejects": paper_activity["latest_risk_rejects"] if paper_activity["latest_risk_rejects"] else None,
+        "risk_rejects": activity["latest_risk_rejects"] if activity["latest_risk_rejects"] else None,
         "kill_switch_state": "enabled" if kill_switch_enabled else "disabled",
         "active_strategy": active_strategy,
         "strategy_score": None,
-        "last_trade_time": paper_activity["last_submitted_trade_time"],
+        "last_trade_time": activity["last_submitted_trade_time"],
         "last_telegram_alert_time": telegram_warning,
+        "latest_telegram_warning": telegram_warning,
         "paper_execution_status": paper_execution.get("status") if isinstance(paper_execution, dict) else "unknown",
         "paper_runtime_gate_passed": bool(paper_execution.get("runtime_gate_passed")) if isinstance(paper_execution, dict) else None,
         "paper_runtime_gate_blocks": list(runtime_gate_blocks),
@@ -173,6 +186,7 @@ def metrics_payload(settings: Settings) -> dict[str, Any]:
         "live_runtime_gate_passed": bool(live_execution.get("runtime_gate_passed")) if isinstance(live_execution, dict) else None,
         "live_runtime_gate_blocks": list(live_runtime_gate_blocks),
         "paper_order_status_counts": paper_activity["latest_order_status_counts"],
+        "live_order_status_counts": live_activity["latest_order_status_counts"],
         "api_process_running": process_states["api_process_running"],
         "paper_engine_running": process_states["paper_engine_running"],
         "live_engine_running": process_states["live_engine_running"],
@@ -252,6 +266,59 @@ def paper_strategy_status_payload(settings: Settings) -> dict[str, Any]:
     }
 
 
+def live_strategy_status_payload(settings: Settings) -> dict[str, Any]:
+    shared = _shared_dir(settings)
+    status_path = shared / "state" / "live_strategy_status.json"
+    if not status_path.exists():
+        return {
+            "ok": False,
+            "status": "missing",
+            "message": "live strategy status has not been written yet",
+            "mode": "live",
+            "strategies": [],
+            "live_execution": None,
+        }
+
+    try:
+        payload = json.loads(status_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {
+            "ok": False,
+            "status": "invalid",
+            "message": f"live strategy status is unreadable: {exc}",
+            "mode": "live",
+            "strategies": [],
+            "live_execution": None,
+        }
+
+    if not isinstance(payload, dict):
+        return {
+            "ok": False,
+            "status": "invalid",
+            "message": "live strategy status must be a JSON object",
+            "mode": "live",
+            "strategies": [],
+            "live_execution": None,
+        }
+
+    strategies = payload.get("strategies")
+    live_execution = payload.get("live_execution")
+    try:
+        file_updated_at = datetime.fromtimestamp(status_path.stat().st_mtime, UTC).isoformat().replace("+00:00", "Z")
+    except OSError:
+        file_updated_at = None
+    return {
+        "ok": bool(payload.get("ok", False)),
+        "status": "available",
+        "mode": str(payload.get("mode") or "live"),
+        "timestamp": payload.get("timestamp"),
+        "file_updated_at": file_updated_at,
+        "kill_switch_enabled": bool(payload.get("kill_switch_enabled", False)),
+        "live_execution": live_execution if isinstance(live_execution, dict) else None,
+        "strategies": strategies if isinstance(strategies, list) else [],
+    }
+
+
 def _shared_dir(settings: Settings) -> Path:
     return Path(settings.raw.get("TRADING_SYSTEM_SHARED_DIR", ".runtime/shared"))
 
@@ -321,8 +388,7 @@ def _process_states() -> dict[str, bool]:
     }
 
 
-def _paper_order_state(shared: Path) -> dict[str, int]:
-    path = shared / "state" / "paper_entry_orders.json"
+def _order_state(path: Path) -> dict[str, int]:
     if not path.exists():
         return {"client_order_ids_count": 0}
     try:
@@ -349,6 +415,14 @@ def _live_strategy_status(shared: Path) -> dict[str, Any]:
 
 
 def _latest_paper_activity(path: Path) -> dict[str, Any]:
+    return _latest_strategy_activity(path, execution_key="paper_execution")
+
+
+def _latest_live_activity(path: Path) -> dict[str, Any]:
+    return _latest_strategy_activity(path, execution_key="live_execution")
+
+
+def _latest_strategy_activity(path: Path, *, execution_key: str) -> dict[str, Any]:
     if not path.exists():
         return {
             "last_submitted_trade_time": None,
@@ -371,9 +445,9 @@ def _latest_paper_activity(path: Path) -> dict[str, Any]:
         if not isinstance(payload, dict):
             continue
         latest_payload = payload
-        paper_execution = payload.get("paper_execution")
-        if isinstance(paper_execution, dict):
-            for order in paper_execution.get("orders") or []:
+        execution = payload.get(execution_key)
+        if isinstance(execution, dict):
+            for order in execution.get("orders") or []:
                 if isinstance(order, dict) and order.get("status") == "submitted":
                     timestamp = payload.get("timestamp") or payload.get("ts")
                     if isinstance(timestamp, str):
@@ -408,9 +482,9 @@ def _latest_paper_activity(path: Path) -> dict[str, Any]:
             if isinstance(risk_blocks, list):
                 latest_risk_rejects += len(risk_blocks)
 
-    paper_execution = latest_payload.get("paper_execution")
-    if isinstance(paper_execution, dict):
-        for order in paper_execution.get("orders") or []:
+    execution = latest_payload.get(execution_key)
+    if isinstance(execution, dict):
+        for order in execution.get("orders") or []:
             if not isinstance(order, dict):
                 continue
             status = str(order.get("status") or "unknown")

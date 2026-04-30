@@ -2,6 +2,7 @@
 
 import {
   Activity,
+  Bell,
   CheckCircle2,
   Lock,
   LogOut,
@@ -17,7 +18,9 @@ import { useEffect, useMemo, useState } from "react";
 
 import type {
   HealthPayload,
+  LiveStrategyPayload,
   MetricsPayload,
+  PaperStrategyExecution,
   PaperStrategyPayload,
   PaperStrategySnapshot,
   ProxyEnvelope,
@@ -36,6 +39,7 @@ type SnapshotState = {
   readiness?: ProxyEnvelope<ReadinessPayload>;
   metrics?: ProxyEnvelope<MetricsPayload>;
   paperStrategy?: ProxyEnvelope<PaperStrategyPayload>;
+  liveStrategy?: ProxyEnvelope<LiveStrategyPayload>;
   lastUpdated?: string;
   loading: boolean;
   error?: string;
@@ -56,17 +60,19 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
   async function loadSnapshot() {
     setSnapshot((current) => ({ ...current, loading: true, error: undefined }));
     try {
-      const [health, readiness, metrics, paperStrategy] = await Promise.all([
+      const [health, readiness, metrics, paperStrategy, liveStrategy] = await Promise.all([
         fetchEnvelope<HealthPayload>("/api/backend/health"),
         fetchEnvelope<ReadinessPayload>("/api/backend/ready"),
         fetchEnvelope<MetricsPayload>("/api/backend/metrics"),
         fetchEnvelope<PaperStrategyPayload>("/api/backend/paper-strategy"),
+        fetchEnvelope<LiveStrategyPayload>("/api/backend/live-strategy"),
       ]);
       setSnapshot({
         health,
         readiness,
         metrics,
         paperStrategy,
+        liveStrategy,
         lastUpdated: new Date().toLocaleString(),
         loading: false,
       });
@@ -93,8 +99,13 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
   const paperStrategy = snapshot.paperStrategy?.data;
   const paperStrategies = paperStrategy?.strategies || [];
   const paperExecution = paperStrategy?.paper_execution || undefined;
+  const liveStrategy = snapshot.liveStrategy?.data;
+  const liveStrategies = liveStrategy?.strategies || [];
+  const liveExecution = liveStrategy?.live_execution || undefined;
   const primaryPaperStrategy = paperStrategies[0];
+  const primaryLiveStrategy = liveStrategies[0];
   const paperStrategyOk = Boolean(snapshot.paperStrategy?.ok && paperStrategy?.ok);
+  const liveStrategyOk = Boolean(snapshot.liveStrategy?.ok && liveStrategy?.ok);
 
   const posture = useMemo(
     () => [
@@ -130,8 +141,15 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
         label: "Live Engine",
         value: metrics?.live_engine_running ? "Running" : "Stopped",
         tone: metrics?.live_engine_running ? "good" : "warn",
-        detail: metrics?.latest_live_error ? "Recent live startup errors detected" : "No recent live engine error line",
+        detail: liveStrategySummary(liveStrategy, snapshot.liveStrategy?.error, metrics?.latest_live_error),
         icon: Activity,
+      },
+      {
+        label: "Alerts",
+        value: metrics?.latest_api_error || metrics?.latest_paper_error || metrics?.latest_live_error || metrics?.latest_telegram_warning ? "Review" : "Quiet",
+        tone: metrics?.latest_api_error || metrics?.latest_paper_error || metrics?.latest_live_error || metrics?.latest_telegram_warning ? "warn" : "good",
+        detail: metrics?.telegram_bot_running ? "Telegram bot is running" : "Telegram bot is not running",
+        icon: Bell,
       },
       {
         label: "Controls",
@@ -146,14 +164,20 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
       healthOk,
       killSwitchState,
       metrics?.latest_live_error,
+      metrics?.latest_api_error,
+      metrics?.latest_paper_error,
+      metrics?.latest_telegram_warning,
       metrics?.live_engine_running,
       metrics?.paper_engine_running,
+      metrics?.telegram_bot_running,
       paperStrategy,
       readinessChecks,
       readyOk,
       snapshot.health,
+      snapshot.liveStrategy?.error,
       snapshot.paperStrategy?.error,
       snapshot.readiness?.error,
+      liveStrategy,
     ],
   );
 
@@ -304,6 +328,98 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
         </aside>
       </section>
 
+      <section className="panel strategy-panel live-strategy-panel" aria-labelledby="live-strategy-title">
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">Live Strategy</p>
+            <h2 id="live-strategy-title">Current Live Cycle</h2>
+          </div>
+          <span className="timestamp">{formatTimestamp(liveStrategy?.timestamp || liveStrategy?.file_updated_at)}</span>
+        </div>
+        {liveStrategy?.message ? <p className={`alert ${liveStrategy.ok ? "neutral" : "warn"}`}>{liveStrategy.message}</p> : null}
+        <div className="strategy-summary-grid">
+          <StrategyStat label="Mode" value={liveStrategy?.mode || "live"} tone={liveStrategyOk ? "good" : "neutral"} />
+          <StrategyStat label="Execution" value={formatName(liveExecution?.status || "unknown")} tone={executionTone(liveExecution?.status)} />
+          <StrategyStat label="Selected" value={countSelected(liveStrategies).toString()} tone={countSelected(liveStrategies) ? "good" : "neutral"} />
+          <StrategyStat label="Risk Blocks" value={countRiskBlocks(liveStrategies, liveExecution).toString()} tone={countRiskBlocks(liveStrategies, liveExecution) ? "warn" : "good"} />
+        </div>
+        <div className="execution-strip">
+          <span>Execution {liveExecution?.enabled ? "enabled" : "disabled"}</span>
+          <span>Runtime gate {liveExecution?.runtime_gate_passed ? "passed" : "not passed"}</span>
+          <span>Market {liveExecution?.market_open ? "open" : "closed or unknown"}</span>
+          <span>Order type {liveExecution?.order_type || "unknown"}</span>
+          <span>Equity {formatCurrency(liveExecution?.account_equity)}</span>
+          <span>Buying power {formatCurrency(liveExecution?.buying_power)}</span>
+          <span>Limit buffer {formatBps(liveExecution?.limit_buffer_bps)}</span>
+        </div>
+        {liveExecution?.position_lookup_error ? <p className="muted compact">Position lookup: {liveExecution.position_lookup_error}</p> : null}
+        {liveExecution?.runtime_gate_blocks?.length ? <p className="alert warn">Runtime gate blocks: {formatBlocks(liveExecution.runtime_gate_blocks)}</p> : null}
+        <div className="table-shell strategy-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Strategy</th>
+                <th>Mode</th>
+                <th>Regime</th>
+                <th>Selected</th>
+                <th>Orders</th>
+                <th>Blocks</th>
+              </tr>
+            </thead>
+            <tbody>
+              {liveStrategies.length ? (
+                liveStrategies.map((strategy) => (
+                  <tr key={`${strategy.strategy_name}-${strategy.mode}`}>
+                    <td>{formatName(strategy.strategy_name)}</td>
+                    <td>{formatName(strategy.mode)}</td>
+                    <td>{formatRegime(strategy)}</td>
+                    <td>{formatSelected(strategy)}</td>
+                    <td>{formatOrders(strategy)}</td>
+                    <td>{formatBlocks(strategy.risk_blocks, strategy.warnings)}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6}>{snapshot.liveStrategy?.error || liveStrategy?.message || "Live strategy status has not loaded."}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        {liveExecution?.orders?.length ? (
+          <div className="table-shell strategy-table execution-orders">
+            <table>
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Side</th>
+                  <th>Status</th>
+                  <th>Limit</th>
+                  <th>Current</th>
+                  <th>Order</th>
+                  <th>Qty</th>
+                  <th>Risk / Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {liveExecution.orders.map((order) => (
+                  <tr key={`${order.client_order_id || order.symbol}-${order.side || "unknown"}-${order.status}`}>
+                    <td>{order.symbol || "unknown"}</td>
+                    <td>{formatName(order.side || "unknown")}</td>
+                    <td>{formatName(order.status || "unknown")}</td>
+                    <td>{formatCurrency(order.limit_price)}</td>
+                    <td>{formatPositionCell(order.current_position_notional_usd, order.current_position_qty)}</td>
+                    <td>{formatCurrency(order.notional_usd)}</td>
+                    <td>{formatQuantity(order.qty)}</td>
+                    <td>{order.error ? order.error : formatBlocks(order.risk_blocks)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </section>
+
       <section className="panel strategy-panel" aria-labelledby="paper-strategy-title">
         <div className="panel-header">
           <div>
@@ -403,7 +519,9 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
         <Metric label="Open Positions" value={formatNullable(metrics?.open_positions)} />
         <Metric label="Open Orders" value={formatNullable(metrics?.open_orders)} />
         <Metric label="Risk Rejects" value={formatNullable(metrics?.risk_rejects)} />
-        <Metric label="Strategy" value={metrics?.active_strategy || primaryPaperStrategy?.strategy_name || "none"} />
+        <Metric label="Strategy" value={metrics?.active_strategy || primaryLiveStrategy?.strategy_name || primaryPaperStrategy?.strategy_name || "none"} />
+        <Metric label="Live Execution" value={formatName(metrics?.live_execution_status || "unknown")} />
+        <Metric label="Live Gate" value={formatRuntimeGate(metrics?.live_runtime_gate_passed, metrics?.live_runtime_gate_blocks)} />
         <Metric label="Paper Execution" value={formatName(metrics?.paper_execution_status || "unknown")} />
         <Metric label="Paper Gate" value={formatRuntimeGate(metrics?.paper_runtime_gate_passed, metrics?.paper_runtime_gate_blocks)} />
         <Metric label="Last Trade" value={formatTimestamp(metrics?.last_trade_time)} />
@@ -422,7 +540,7 @@ export function DashboardClient({ backendLabel, controlActionsEnabled }: Dashboa
         <p className="muted compact">{metrics?.latest_api_error || "API: no recent error line"}</p>
         <p className="muted compact">{metrics?.latest_paper_error || "Paper: no recent error line"}</p>
         <p className="muted compact">{metrics?.latest_live_error || "Live: no recent error line"}</p>
-        <p className="muted compact">{metrics?.last_telegram_alert_time || "Telegram: no recent warning line"}</p>
+        <p className="muted compact">{metrics?.latest_telegram_warning || metrics?.last_telegram_alert_time || "Telegram: no recent warning line"}</p>
       </section>
     </main>
   );
@@ -541,6 +659,24 @@ function paperStrategySummary(payload: PaperStrategyPayload | undefined, fallbac
   return `${selected} selections from ${when}`;
 }
 
+function liveStrategySummary(payload: LiveStrategyPayload | undefined, fallbackError?: string, latestError?: string | null) {
+  if (fallbackError) {
+    return fallbackError;
+  }
+  if (latestError) {
+    return "Recent live startup errors detected";
+  }
+  if (!payload) {
+    return "Waiting for live strategy status";
+  }
+  if (!payload.ok) {
+    return payload.message || "No current live cycle";
+  }
+  const status = payload.live_execution?.status || "unknown";
+  const selected = countSelected(payload.strategies || []);
+  return `${formatName(status)} with ${selected} selections`;
+}
+
 function formatDetail(value: string) {
   try {
     const parsed = JSON.parse(value) as { message?: string };
@@ -627,7 +763,7 @@ function countSelected(strategies: PaperStrategySnapshot[]) {
   return strategies.reduce((total, strategy) => total + (strategy.selected?.length || 0), 0);
 }
 
-function countRiskBlocks(strategies: PaperStrategySnapshot[], execution?: PaperStrategyPayload["paper_execution"]) {
+function countRiskBlocks(strategies: PaperStrategySnapshot[], execution?: PaperStrategyExecution | null) {
   const strategyBlocks = strategies.reduce((total, strategy) => total + (strategy.risk_blocks?.length || 0), 0);
   return strategyBlocks + (execution?.runtime_gate_blocks?.length || 0);
 }

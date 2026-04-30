@@ -27,6 +27,8 @@ HEALTH_PATHS = ["/health"]
 STATUS_PATHS = ["/ready", "/metrics", "/health"]
 KILL_SWITCH_PATHS = ["/admin/kill"]
 PAPER_STRATEGY_PATHS = ["/paper-strategy"]
+LIVE_STRATEGY_PATHS = ["/live-strategy"]
+ALERT_PATHS = ["/metrics"]
 
 
 def _required_env(name: str) -> str:
@@ -133,6 +135,68 @@ def _summarize_paper_strategy(payload: Any) -> str:
     runtime_blocks = execution.get("runtime_gate_blocks")
     if isinstance(runtime_blocks, list) and runtime_blocks:
         lines.append("Runtime gate blocks: " + ", ".join(str(item) for item in runtime_blocks[:4]))
+    return "\n".join(lines)
+
+
+def _summarize_live_strategy(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return "Live strategy payload is unavailable."
+    live_execution = payload.get("live_execution")
+    strategy_items = payload.get("strategies")
+    strategies = strategy_items if isinstance(strategy_items, list) else []
+    execution = live_execution if isinstance(live_execution, dict) else {}
+    orders = execution.get("orders") if isinstance(execution.get("orders"), list) else []
+    submitted_buy = sum(1 for item in orders if isinstance(item, dict) and item.get("submitted") and item.get("side") == "buy")
+    submitted_sell = sum(1 for item in orders if isinstance(item, dict) and item.get("submitted") and item.get("side") == "sell")
+    selected = 0
+    exits = 0
+    for strategy in strategies:
+        if not isinstance(strategy, dict):
+            continue
+        selected_items = strategy.get("selected")
+        exit_items = strategy.get("exits")
+        selected += len(selected_items) if isinstance(selected_items, list) else 0
+        exits += len(exit_items) if isinstance(exit_items, list) else 0
+    lines = [
+        f"Live status: {payload.get('status') or 'unknown'}",
+        f"Cycle timestamp: {payload.get('timestamp') or 'unknown'}",
+        f"Execution status: {execution.get('status') or 'unknown'}",
+        f"Runtime gate: {'passed' if execution.get('runtime_gate_passed') else 'not passed'}",
+        f"Strategies: {len(strategies)} | Selected: {selected} | Exit intents: {exits}",
+        f"Submitted buys: {submitted_buy} | Submitted sells: {submitted_sell}",
+    ]
+    runtime_blocks = execution.get("runtime_gate_blocks")
+    if isinstance(runtime_blocks, list) and runtime_blocks:
+        lines.append("Runtime gate blocks: " + ", ".join(str(item) for item in runtime_blocks[:4]))
+    return "\n".join(lines)
+
+
+def _summarize_alerts(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return "Alert payload is unavailable."
+    lines = [
+        f"Mode: {payload.get('trading_mode') or 'unknown'}",
+        f"Market: {payload.get('market_open_status') or 'unknown'}",
+        f"Live execution: {payload.get('live_execution_status') or 'unknown'}",
+        f"Paper execution: {payload.get('paper_execution_status') or 'unknown'}",
+        f"Kill switch: {payload.get('kill_switch_state') or 'unknown'}",
+        f"API process: {'running' if payload.get('api_process_running') else 'stopped'}",
+        f"Live process: {'running' if payload.get('live_engine_running') else 'stopped'}",
+        f"Telegram process: {'running' if payload.get('telegram_bot_running') else 'stopped'}",
+    ]
+    error_lines = [
+        ("API", payload.get("latest_api_error")),
+        ("Paper", payload.get("latest_paper_error")),
+        ("Live", payload.get("latest_live_error")),
+        ("Telegram", payload.get("latest_telegram_warning") or payload.get("last_telegram_alert_time")),
+    ]
+    active_errors = [(label, value) for label, value in error_lines if isinstance(value, str) and value]
+    if not active_errors:
+        lines.append("Alerts: no recent API, paper, live, or Telegram warning lines")
+    else:
+        lines.append("Alerts:")
+        for label, value in active_errors:
+            lines.append(f"- {label}: {value[:500]}")
     return "\n".join(lines)
 
 
@@ -289,6 +353,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "/health\n"
             "/status\n"
             "/paper\n"
+            "/live\n"
+            "/alerts\n"
             "/account\n"
             "/positions\n"
             "/orders\n"
@@ -319,6 +385,22 @@ async def paper(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     path, body = await _api_get(PAPER_STRATEGY_PATHS)
     if update.message:
         await update.message.reply_text(f"Paper strategy endpoint: {path}\n{_summarize_paper_strategy(body)}")
+
+
+async def live(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _authorized(update):
+        return
+    path, body = await _api_get(LIVE_STRATEGY_PATHS)
+    if update.message:
+        await update.message.reply_text(f"Live strategy endpoint: {path}\n{_summarize_live_strategy(body)}")
+
+
+async def alerts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _authorized(update):
+        return
+    path, body = await _api_get(ALERT_PATHS)
+    if update.message:
+        await update.message.reply_text(f"Alerts endpoint: {path}\n{_summarize_alerts(body)}")
 
 
 async def account(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -362,6 +444,8 @@ def main() -> None:
     application.add_handler(CommandHandler("health", health))
     application.add_handler(CommandHandler("status", status))
     application.add_handler(CommandHandler("paper", paper))
+    application.add_handler(CommandHandler("live", live))
+    application.add_handler(CommandHandler("alerts", alerts))
     application.add_handler(CommandHandler("account", account))
     application.add_handler(CommandHandler("positions", positions))
     application.add_handler(CommandHandler("orders", orders))

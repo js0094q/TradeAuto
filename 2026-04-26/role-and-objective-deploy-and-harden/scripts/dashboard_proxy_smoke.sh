@@ -32,7 +32,7 @@ if [[ "${login_status}" != "200" ]]; then
   exit 1
 fi
 
-for path in health ready metrics paper-strategy; do
+for path in health ready metrics paper-strategy live-strategy; do
   body_file="$(mktemp)"
   status="$(
     curl -sS -o "${body_file}" -w "%{http_code}" \

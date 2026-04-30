@@ -39,7 +39,11 @@ export type MetricsPayload = {
   paper_execution_status?: string;
   paper_runtime_gate_passed?: boolean | null;
   paper_runtime_gate_blocks?: string[];
+  live_execution_status?: string;
+  live_runtime_gate_passed?: boolean | null;
+  live_runtime_gate_blocks?: string[];
   paper_order_status_counts?: Record<string, number>;
+  live_order_status_counts?: Record<string, number>;
   api_process_running?: boolean;
   paper_engine_running?: boolean;
   live_engine_running?: boolean;
@@ -47,6 +51,7 @@ export type MetricsPayload = {
   latest_api_error?: string | null;
   latest_paper_error?: string | null;
   latest_live_error?: string | null;
+  latest_telegram_warning?: string | null;
 };
 
 export type PaperStrategyExecution = {
@@ -59,6 +64,9 @@ export type PaperStrategyExecution = {
   bankroll_usd?: number;
   max_notional_usd?: number;
   notional_usd?: number;
+  account_equity?: number;
+  buying_power?: number;
+  confirmation_required?: string;
   limit_buffer_bps?: number;
   order_type?: string;
   orders?: Array<{
@@ -73,6 +81,7 @@ export type PaperStrategyExecution = {
     limit_price?: number;
     qty?: number;
     notional_usd?: number;
+    returncode?: number;
     target_notional_usd?: number;
     current_position_notional_usd?: number;
     current_position_qty?: number;
@@ -123,5 +132,17 @@ export type PaperStrategyPayload = {
   kill_switch_enabled?: boolean;
   position_lookup_error?: string | null;
   paper_execution?: PaperStrategyExecution | null;
+  strategies?: PaperStrategySnapshot[];
+};
+
+export type LiveStrategyPayload = {
+  ok: boolean;
+  status: "available" | "missing" | "invalid" | string;
+  message?: string;
+  mode?: string;
+  timestamp?: string | null;
+  file_updated_at?: string | null;
+  kill_switch_enabled?: boolean;
+  live_execution?: PaperStrategyExecution | null;
   strategies?: PaperStrategySnapshot[];
 };
