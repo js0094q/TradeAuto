@@ -23,7 +23,6 @@ from trading_system.strategies.strategy_config import default_equity_etf_trend_r
 from trading_system.trading.order_intents import OrderIntent
 from trading_system.trading.paper_strategy_runner import (
     _asset_class_for_symbol,
-    _client_order_id,
     _float_or_none,
     _limit_price_for,
     _lookback_start,
@@ -180,6 +179,13 @@ def _state_path(shared: Path) -> Path:
     return shared / "state" / "live_strategy_orders.json"
 
 
+def _live_client_order_id(strategy_name: str, symbol: str, trade_date: str, *, suffix: str = "entry") -> str:
+    strategy_prefixes = {"equity_etf_trend_regime_v1": "etrv1"}
+    prefix = strategy_prefixes.get(strategy_name, strategy_name.replace("_", "-")[:12])
+    clean_suffix = suffix.replace("_", "-")[:12]
+    return f"{prefix}-{trade_date}-{symbol}-live-{clean_suffix}"[:48]
+
+
 def _load_order_state(shared: Path) -> dict[str, Any]:
     path = _state_path(shared)
     if not path.exists():
@@ -281,7 +287,7 @@ def _execute_live_orders(
             continue
         asset_class = _asset_class_for_symbol(intent.symbol)
         suffix = "entry" if intent.side == "buy" else "exit"
-        client_order_id = _client_order_id(intent.strategy_name, intent.symbol, today, suffix=f"live-{suffix}")
+        client_order_id = _live_client_order_id(intent.strategy_name, intent.symbol, today, suffix=suffix)
         entry: dict[str, Any] = {
             "symbol": intent.symbol,
             "side": intent.side,

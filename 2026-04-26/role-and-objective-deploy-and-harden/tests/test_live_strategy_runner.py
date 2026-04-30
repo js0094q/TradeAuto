@@ -159,8 +159,56 @@ class LiveStrategyRunnerTests(unittest.TestCase):
             self.assertIn("--type", first_command)
             self.assertIn("limit", first_command)
             self.assertIn("--client-order-id", first_command)
+            client_order_id = first_command[first_command.index("--client-order-id") + 1]
+            self.assertIn("-live-entry", client_order_id)
+            self.assertNotIn("-paper-", client_order_id)
             self.assertEqual(first_env["ALPACA_PROFILE"], "live")
             self.assertEqual(first_env["ALPACA_LIVE_TRADE"], "true")
+
+    def test_live_strategy_submits_sell_for_deselected_position(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, "state").mkdir()
+            Path(tmpdir, "state", "kill_switch.enabled").write_text("disabled\n", encoding="utf-8")
+            captured: list[list[str]] = []
+
+            def fake_run(command: list[str], **_kwargs: object) -> object:
+                if "account" in command:
+                    return SimpleNamespace(returncode=0, stdout='{"equity":"100","buying_power":"100"}', stderr="")
+                if "position" in command:
+                    return SimpleNamespace(
+                        returncode=0,
+                        stdout='[{"symbol":"XLE","qty":"0.5","market_value":"25"}]',
+                        stderr="",
+                    )
+                if "clock" in command:
+                    return SimpleNamespace(returncode=0, stdout='{"is_open":true}', stderr="")
+                if "order" in command and "submit" in command:
+                    captured.append(command)
+                    return SimpleNamespace(returncode=0, stdout='{"id":"live-order"}', stderr="")
+                return SimpleNamespace(returncode=1, stdout="", stderr="unexpected command")
+
+            live_settings = settings(
+                tmpdir,
+                {
+                    "LIVE_STRATEGY_EXECUTION_ENABLED": "true",
+                    "LIVE_STRATEGY_CONFIRMATION": live_strategy_runner.LIVE_STRATEGY_CONFIRMATION,
+                },
+            )
+            with (
+                patch.object(live_strategy_runner, "_provider", return_value=FakeProvider()),
+                patch.object(live_strategy_runner.subprocess, "run", side_effect=fake_run),
+            ):
+                payload = live_strategy_runner.run_once(live_settings)
+
+            self.assertEqual(payload["live_execution"]["status"], "complete")
+            sell_commands = [command for command in captured if "--side" in command and command[command.index("--side") + 1] == "sell"]
+            self.assertTrue(sell_commands)
+            sell = sell_commands[0]
+            self.assertEqual(sell[sell.index("--symbol") + 1], "XLE")
+            self.assertEqual(sell[sell.index("--qty") + 1], "0.500000")
+            client_order_id = sell[sell.index("--client-order-id") + 1]
+            self.assertIn("-live-exit", client_order_id)
+            self.assertNotIn("-paper-", client_order_id)
 
 
 if __name__ == "__main__":
