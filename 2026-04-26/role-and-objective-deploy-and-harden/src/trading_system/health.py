@@ -120,15 +120,29 @@ def metrics_payload(settings: Settings) -> dict[str, Any]:
         first_strategy = paper_strategies[0]
         if isinstance(first_strategy, dict):
             active_strategy = first_strategy.get("strategy_name")
+    live_strategy = _live_strategy_status(shared)
+    live_strategies = live_strategy.get("strategies") if isinstance(live_strategy.get("strategies"), list) else []
+    if live_strategies:
+        first_live_strategy = live_strategies[0]
+        if isinstance(first_live_strategy, dict):
+            active_strategy = first_live_strategy.get("strategy_name")
     paper_execution = paper_strategy.get("paper_execution")
+    live_execution = live_strategy.get("live_execution")
     market_open_status = "unknown"
     if isinstance(paper_execution, dict) and isinstance(paper_execution.get("market_open"), bool):
         market_open_status = "open" if paper_execution["market_open"] else "closed"
+    elif isinstance(live_execution, dict) and isinstance(live_execution.get("market_open"), bool):
+        market_open_status = "open" if live_execution["market_open"] else "closed"
     runtime_gate_blocks = ()
     if isinstance(paper_execution, dict):
         maybe_blocks = paper_execution.get("runtime_gate_blocks")
         if isinstance(maybe_blocks, list):
             runtime_gate_blocks = tuple(str(item) for item in maybe_blocks)
+    live_runtime_gate_blocks = ()
+    if isinstance(live_execution, dict):
+        maybe_live_blocks = live_execution.get("runtime_gate_blocks")
+        if isinstance(maybe_live_blocks, list):
+            live_runtime_gate_blocks = tuple(str(item) for item in maybe_live_blocks)
 
     return {
         "uptime_seconds": round(time.time() - STARTED_AT, 3),
@@ -155,6 +169,9 @@ def metrics_payload(settings: Settings) -> dict[str, Any]:
         "paper_execution_status": paper_execution.get("status") if isinstance(paper_execution, dict) else "unknown",
         "paper_runtime_gate_passed": bool(paper_execution.get("runtime_gate_passed")) if isinstance(paper_execution, dict) else None,
         "paper_runtime_gate_blocks": list(runtime_gate_blocks),
+        "live_execution_status": live_execution.get("status") if isinstance(live_execution, dict) else "unknown",
+        "live_runtime_gate_passed": bool(live_execution.get("runtime_gate_passed")) if isinstance(live_execution, dict) else None,
+        "live_runtime_gate_blocks": list(live_runtime_gate_blocks),
         "paper_order_status_counts": paper_activity["latest_order_status_counts"],
         "api_process_running": process_states["api_process_running"],
         "paper_engine_running": process_states["paper_engine_running"],
@@ -318,6 +335,17 @@ def _paper_order_state(shared: Path) -> dict[str, int]:
     if not isinstance(client_ids, list):
         return {"client_order_ids_count": 0}
     return {"client_order_ids_count": len(client_ids)}
+
+
+def _live_strategy_status(shared: Path) -> dict[str, Any]:
+    path = shared / "state" / "live_strategy_status.json"
+    if not path.exists():
+        return {"live_execution": None, "strategies": []}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"live_execution": None, "strategies": []}
+    return payload if isinstance(payload, dict) else {"live_execution": None, "strategies": []}
 
 
 def _latest_paper_activity(path: Path) -> dict[str, Any]:

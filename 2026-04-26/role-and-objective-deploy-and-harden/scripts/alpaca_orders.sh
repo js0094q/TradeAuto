@@ -8,4 +8,4 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/alpaca_cli.sh"
 alpaca_cli_command
 
-ALPACA_PROFILE="${PROFILE}" "${ALPACA_CLI_COMMAND[@]}" --profile "${PROFILE}" --quiet orders list --status "${STATUS}"
+ALPACA_PROFILE="${PROFILE}" "${ALPACA_CLI_COMMAND[@]}" --profile "${PROFILE}" --quiet order list --status "${STATUS}"
