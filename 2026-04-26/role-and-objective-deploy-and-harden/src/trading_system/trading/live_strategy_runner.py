@@ -338,6 +338,7 @@ def _execute_live_orders(
             )
             quantity = _executable_quantity(max(notional / limit_price, 0.0))
             notional = round(abs(quantity * limit_price), 2)
+            risk_open_positions = max(open_positions - 1, 0) if current_qty is not None and current_qty > 0.0 else open_positions
         else:
             if current_qty is None or current_qty <= 0.0:
                 entry["status"] = "blocked_no_position"
@@ -345,6 +346,7 @@ def _execute_live_orders(
                 continue
             quantity = _executable_quantity(current_qty)
             notional = round(abs(quantity * limit_price), 2)
+            risk_open_positions = open_positions
 
         sized_intent = replace(intent, quantity=quantity, notional=notional)
         approved = engine.evaluate_intent(
@@ -352,7 +354,7 @@ def _execute_live_orders(
             AccountState(
                 buying_power=remaining_buying_power if intent.side == "buy" else buying_power,
                 market_is_open=market_open or asset_class == "crypto",
-                open_positions=open_positions,
+                open_positions=risk_open_positions,
                 trades_today=trades_today,
             ),
             MarketState(asset_tradable=True, spread_pct=0.01),

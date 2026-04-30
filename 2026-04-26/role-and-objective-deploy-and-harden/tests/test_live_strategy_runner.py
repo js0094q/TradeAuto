@@ -11,6 +11,7 @@ from unittest.mock import patch
 from tests.strategies.helpers import bars_from_prices, default_quotes, trend_prices
 from trading_system.config import build_settings
 from trading_system.data.provider import MarketDataProviderError
+from trading_system.trading.order_intents import OrderIntent
 from trading_system.trading import live_strategy_runner
 
 
@@ -223,6 +224,97 @@ class LiveStrategyRunnerTests(unittest.TestCase):
             client_order_id = sell[sell.index("--client-order-id") + 1]
             self.assertIn("-live-exit", client_order_id)
             self.assertNotIn("-paper-", client_order_id)
+
+    def test_live_buy_for_existing_position_does_not_hit_open_position_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, "state").mkdir()
+            captured: list[list[str]] = []
+
+            def fake_run(command: list[str], **_kwargs: object) -> object:
+                if "order" in command and "submit" in command:
+                    captured.append(command)
+                    return SimpleNamespace(returncode=0, stdout='{"id":"live-order"}', stderr="")
+                return SimpleNamespace(returncode=1, stdout="", stderr="unexpected command")
+
+            live_settings = settings(
+                tmpdir,
+                {
+                    "LIVE_STRATEGY_EXECUTION_ENABLED": "true",
+                    "LIVE_STRATEGY_CONFIRMATION": live_strategy_runner.LIVE_STRATEGY_CONFIRMATION,
+                },
+            )
+            with patch.object(live_strategy_runner.subprocess, "run", side_effect=fake_run):
+                execution = live_strategy_runner._execute_live_orders(
+                    live_settings,
+                    shared=Path(tmpdir),
+                    selected_orders=(
+                        OrderIntent(
+                            strategy_name="equity_etf_trend_regime_v1",
+                            symbol="XLE",
+                            side="buy",
+                            target_weight=0.25,
+                            quantity=None,
+                            notional=25.0,
+                            reason="top_3_rank_and_regime_passed",
+                            mode="live",
+                        ),
+                    ),
+                    quotes={"XLE": {"bid": 59.00, "ask": 59.05}},
+                    market_clock={"is_open": True},
+                    account={"equity": "100", "buying_power": "100"},
+                    positions_snapshot={
+                        "XLE": {"symbol": "XLE", "qty": 0.429332, "market_value": 25.35},
+                        "XLK": {"symbol": "XLK", "qty": 0.1567, "market_value": 24.64},
+                        "QQQ": {"symbol": "QQQ", "qty": 0.0376, "market_value": 24.76},
+                    },
+                    position_lookup_error=None,
+                    kill_switch_enabled=False,
+                )
+
+            self.assertEqual(execution["status"], "complete")
+            self.assertEqual(execution["orders"][0]["status"], "submitted")
+            self.assertNotIn("max open positions reached", execution["orders"][0]["risk_blocks"])
+            self.assertTrue(captured)
+
+    def test_live_buy_for_new_position_still_hits_open_position_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, "state").mkdir()
+            live_settings = settings(
+                tmpdir,
+                {
+                    "LIVE_STRATEGY_EXECUTION_ENABLED": "true",
+                    "LIVE_STRATEGY_CONFIRMATION": live_strategy_runner.LIVE_STRATEGY_CONFIRMATION,
+                },
+            )
+            execution = live_strategy_runner._execute_live_orders(
+                live_settings,
+                shared=Path(tmpdir),
+                selected_orders=(
+                    OrderIntent(
+                        strategy_name="equity_etf_trend_regime_v1",
+                        symbol="XLF",
+                        side="buy",
+                        target_weight=0.25,
+                        quantity=None,
+                        notional=25.0,
+                        reason="top_3_rank_and_regime_passed",
+                        mode="live",
+                    ),
+                ),
+                quotes={"XLF": {"bid": 51.00, "ask": 51.05}},
+                market_clock={"is_open": True},
+                account={"equity": "100", "buying_power": "100"},
+                positions_snapshot={
+                    "XLE": {"symbol": "XLE", "qty": 0.429332, "market_value": 25.35},
+                    "XLK": {"symbol": "XLK", "qty": 0.1567, "market_value": 24.64},
+                    "QQQ": {"symbol": "QQQ", "qty": 0.0376, "market_value": 24.76},
+                },
+                position_lookup_error=None,
+                kill_switch_enabled=False,
+            )
+
+            self.assertEqual(execution["orders"][0]["status"], "blocked_by_risk_engine")
+            self.assertIn("max open positions reached", execution["orders"][0]["risk_blocks"])
 
     def test_live_strategy_uses_same_day_exit_fallback_when_bars_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
