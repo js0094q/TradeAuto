@@ -179,6 +179,10 @@ def _state_path(shared: Path) -> Path:
     return shared / "state" / "live_strategy_orders.json"
 
 
+def _status_path(shared: Path) -> Path:
+    return shared / "state" / "live_strategy_status.json"
+
+
 def _live_client_order_id(strategy_name: str, symbol: str, trade_date: str, *, suffix: str = "entry") -> str:
     strategy_prefixes = {"equity_etf_trend_regime_v1": "etrv1"}
     prefix = strategy_prefixes.get(strategy_name, strategy_name.replace("_", "-")[:12])
@@ -424,12 +428,80 @@ def _execute_live_orders(
 
 
 def _write_status(shared: Path, payload: dict[str, Any]) -> None:
-    status_path = shared / "state" / "live_strategy_status.json"
+    status_path = _status_path(shared)
     status_path.parent.mkdir(parents=True, exist_ok=True)
     status_path.write_text(
         json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n",
         encoding="utf-8",
     )
+
+
+def _load_status(shared: Path) -> dict[str, Any]:
+    path = _status_path(shared)
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _payload_trade_date(payload: dict[str, Any]) -> date | None:
+    timestamp = payload.get("timestamp") or payload.get("file_updated_at")
+    if not isinstance(timestamp, str) or not timestamp:
+        return None
+    try:
+        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.astimezone(UTC).date() if parsed.tzinfo else parsed.date()
+
+
+def _last_same_day_exit_intents(
+    previous_status: dict[str, Any],
+    *,
+    position_symbols: tuple[str, ...],
+) -> tuple[OrderIntent, ...]:
+    if _payload_trade_date(previous_status) != datetime.now(UTC).date():
+        return ()
+    position_set = {_normalize_symbol(symbol) for symbol in position_symbols}
+    strategies = previous_status.get("strategies")
+    if not isinstance(strategies, list):
+        return ()
+
+    intents: list[OrderIntent] = []
+    seen: set[str] = set()
+    for strategy in strategies:
+        if not isinstance(strategy, dict):
+            continue
+        orders = strategy.get("orders")
+        if not isinstance(orders, list):
+            continue
+        for order in orders:
+            if not isinstance(order, dict) or order.get("side") != "sell":
+                continue
+            symbol = _normalize_symbol(str(order.get("symbol") or ""))
+            if not symbol or symbol not in position_set or symbol in seen:
+                continue
+            intents.append(
+                OrderIntent(
+                    strategy_name=str(order.get("strategy_name") or strategy.get("strategy_name") or "live_exit_fallback"),
+                    symbol=symbol,
+                    side="sell",
+                    target_weight=0.0,
+                    quantity=None,
+                    notional=None,
+                    reason=str(order.get("reason") or "last_same_day_exit_intent"),
+                    mode="live",
+                )
+            )
+            seen.add(symbol)
+    return tuple(intents)
+
+
+def _market_data_error_text(exc: MarketDataProviderError) -> str:
+    return str(exc)[:500]
 
 
 def _gate_only_payload(settings: Settings, *, kill_switch_enabled: bool) -> dict[str, Any]:
@@ -508,22 +580,41 @@ def run_once(settings: Settings) -> dict[str, Any]:
     start = _lookback_start()
     end = _today()
     LOGGER.info("fetching live strategy market data universe=%s start=%s end=%s", ",".join(universe), start, end)
-    equity_bars = provider.fetch_bars(universe, "1Day", start, end)
-    quote_symbols = tuple(dict.fromkeys((*universe, *position_symbols)))
-    quotes = provider.fetch_latest_quote(quote_symbols)
     account_equity = _float_or_none(account.get("equity")) or 0.0
-    rebalance = strategy.rebalance(
-        bars_by_symbol=equity_bars,
-        quotes_by_symbol=quotes,
-        current_positions=tuple(position_symbols),
-        mode="live",
-        kill_switch_enabled=kill_switch_enabled,
-        portfolio_value=account_equity,
-    )
+    previous_status = _load_status(shared)
+    fallback_used = False
+    market_data_error: str | None = None
+    strategies: list[dict[str, Any]] = []
+    try:
+        equity_bars = provider.fetch_bars(universe, "1Day", start, end)
+        quote_symbols = tuple(dict.fromkeys((*universe, *position_symbols)))
+        quotes = provider.fetch_latest_quote(quote_symbols)
+        rebalance = strategy.rebalance(
+            bars_by_symbol=equity_bars,
+            quotes_by_symbol=quotes,
+            current_positions=tuple(position_symbols),
+            mode="live",
+            kill_switch_enabled=kill_switch_enabled,
+            portfolio_value=account_equity,
+        )
+        selected_orders = rebalance.orders
+        strategies = [rebalance.to_dashboard_payload()]
+    except MarketDataProviderError as exc:
+        market_data_error = _market_data_error_text(exc)
+        LOGGER.error("market data unavailable: %s", exc)
+        selected_orders = _last_same_day_exit_intents(previous_status, position_symbols=tuple(position_symbols))
+        quote_symbols = tuple(dict.fromkeys(intent.symbol for intent in selected_orders))
+        previous_strategies = previous_status.get("strategies")
+        strategies = previous_strategies if isinstance(previous_strategies, list) else []
+        fallback_used = bool(selected_orders)
+        if fallback_used:
+            quotes = provider.fetch_latest_quote(quote_symbols)
+        else:
+            quotes = {}
     live_execution = _execute_live_orders(
         settings,
         shared=shared,
-        selected_orders=rebalance.orders,
+        selected_orders=selected_orders,
         quotes=quotes,
         market_clock=_market_clock(settings),
         account=account,
@@ -531,20 +622,25 @@ def run_once(settings: Settings) -> dict[str, Any]:
         position_lookup_error=position_lookup_error,
         kill_switch_enabled=kill_switch_enabled,
     )
+    if market_data_error:
+        live_execution["market_data_error"] = market_data_error
+        live_execution["exit_fallback_used"] = fallback_used
+        if not fallback_used:
+            live_execution["status"] = "blocked_market_data_unavailable"
     payload = {
         "ok": True,
         "mode": "live",
         "timestamp": datetime.now(UTC).isoformat(),
         "kill_switch_enabled": kill_switch_enabled,
         "live_execution": live_execution,
-        "strategies": [rebalance.to_dashboard_payload()],
+        "strategies": strategies,
     }
     append_jsonl(shared / "logs" / "live_strategy_rebalances.jsonl", payload)
     _write_status(shared, payload)
     LOGGER.info(
         "live strategy cycle complete selected=%s risk_blocks=%s live_execution=%s",
-        ",".join(item.symbol for item in rebalance.selected) or "none",
-        ",".join(rebalance.risk_blocks) or "none",
+        ",".join(str(item.get("symbol")) for strategy_payload in strategies for item in strategy_payload.get("selected", []) if isinstance(item, dict)) or "none",
+        ",".join(str(block) for strategy_payload in strategies for block in strategy_payload.get("risk_blocks", [])) or "none",
         live_execution.get("status"),
     )
     return payload

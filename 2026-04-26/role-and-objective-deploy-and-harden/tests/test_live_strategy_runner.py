@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
@@ -9,6 +10,7 @@ from unittest.mock import patch
 
 from tests.strategies.helpers import bars_from_prices, default_quotes, trend_prices
 from trading_system.config import build_settings
+from trading_system.data.provider import MarketDataProviderError
 from trading_system.trading import live_strategy_runner
 
 
@@ -36,6 +38,11 @@ class FakeProvider:
     def fetch_latest_quote(self, symbols: tuple[str, ...]) -> dict[str, dict[str, float]]:
         self.latest_quote_symbols = symbols
         return default_quotes(symbols)
+
+
+class FailingBarsProvider(FakeProvider):
+    def fetch_bars(self, symbols: tuple[str, ...], timeframe: str, start: str, end: str | None = None) -> dict[str, list[object]]:
+        raise MarketDataProviderError("bars unavailable")
 
 
 def settings(tmpdir: str, overrides: dict[str, str] | None = None) -> object:
@@ -216,6 +223,80 @@ class LiveStrategyRunnerTests(unittest.TestCase):
             client_order_id = sell[sell.index("--client-order-id") + 1]
             self.assertIn("-live-exit", client_order_id)
             self.assertNotIn("-paper-", client_order_id)
+
+    def test_live_strategy_uses_same_day_exit_fallback_when_bars_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_dir = Path(tmpdir, "state")
+            state_dir.mkdir()
+            Path(tmpdir, "logs").mkdir()
+            (state_dir / "kill_switch.enabled").write_text("disabled\n", encoding="utf-8")
+            previous_status = {
+                "ok": True,
+                "mode": "live",
+                "timestamp": live_strategy_runner.datetime.now(live_strategy_runner.UTC).isoformat(),
+                "live_execution": {"status": "complete"},
+                "strategies": [
+                    {
+                        "strategy_name": "equity_etf_trend_regime_v1",
+                        "mode": "live",
+                        "selected": [{"symbol": "QQQ"}],
+                        "risk_blocks": [],
+                        "orders": [
+                            {
+                                "strategy_name": "equity_etf_trend_regime_v1",
+                                "symbol": "NEE",
+                                "side": "sell",
+                                "target_weight": 0.0,
+                                "reason": "deselected",
+                                "mode": "live",
+                            }
+                        ],
+                    }
+                ],
+            }
+            (state_dir / "live_strategy_status.json").write_text(json.dumps(previous_status), encoding="utf-8")
+            captured: list[list[str]] = []
+
+            def fake_run(command: list[str], **_kwargs: object) -> object:
+                if "account" in command:
+                    return SimpleNamespace(returncode=0, stdout='{"equity":"100","buying_power":"100"}', stderr="")
+                if "position" in command:
+                    return SimpleNamespace(
+                        returncode=0,
+                        stdout='[{"symbol":"NEE","qty":"0.5","market_value":"25"}]',
+                        stderr="",
+                    )
+                if "clock" in command:
+                    return SimpleNamespace(returncode=0, stdout='{"is_open":true}', stderr="")
+                if "order" in command and "submit" in command:
+                    captured.append(command)
+                    return SimpleNamespace(returncode=0, stdout='{"id":"live-order"}', stderr="")
+                return SimpleNamespace(returncode=1, stdout="", stderr="unexpected command")
+
+            live_settings = settings(
+                tmpdir,
+                {
+                    "LIVE_STRATEGY_EXECUTION_ENABLED": "true",
+                    "LIVE_STRATEGY_CONFIRMATION": live_strategy_runner.LIVE_STRATEGY_CONFIRMATION,
+                    "MAX_TRADES_PER_DAY": "10",
+                },
+            )
+            provider = FailingBarsProvider()
+            with (
+                patch.object(live_strategy_runner, "_provider", return_value=provider),
+                patch.object(live_strategy_runner.LOGGER, "error"),
+                patch.object(live_strategy_runner.subprocess, "run", side_effect=fake_run),
+            ):
+                payload = live_strategy_runner.run_once(live_settings)
+
+            execution = payload["live_execution"]
+            self.assertEqual(execution["status"], "complete")
+            self.assertTrue(execution["exit_fallback_used"])
+            self.assertIn("bars unavailable", execution["market_data_error"])
+            self.assertEqual(provider.latest_quote_symbols, ("NEE",))
+            sell_commands = [command for command in captured if "--side" in command and command[command.index("--side") + 1] == "sell"]
+            self.assertTrue(sell_commands)
+            self.assertEqual(sell_commands[0][sell_commands[0].index("--symbol") + 1], "NEE")
 
 
 if __name__ == "__main__":
