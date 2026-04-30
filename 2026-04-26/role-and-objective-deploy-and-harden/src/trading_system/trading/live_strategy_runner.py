@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import os
 import signal
 import subprocess
@@ -232,6 +233,12 @@ def _live_order_notional(
     return min(max(target, 0.0), max_order, max(remaining_buying_power, 0.0))
 
 
+def _executable_quantity(quantity: float) -> float:
+    if quantity <= 0.0:
+        return 0.0
+    return math.floor(quantity * 1_000_000) / 1_000_000
+
+
 def _execute_live_orders(
     settings: Settings,
     *,
@@ -329,13 +336,14 @@ def _execute_live_orders(
                 account_equity=account_equity,
                 remaining_buying_power=remaining_buying_power,
             )
-            quantity = max(notional / limit_price, 0.0)
+            quantity = _executable_quantity(max(notional / limit_price, 0.0))
+            notional = round(abs(quantity * limit_price), 2)
         else:
             if current_qty is None or current_qty <= 0.0:
                 entry["status"] = "blocked_no_position"
                 payload["orders"].append(entry)
                 continue
-            quantity = current_qty
+            quantity = _executable_quantity(current_qty)
             notional = round(abs(quantity * limit_price), 2)
 
         sized_intent = replace(intent, quantity=quantity, notional=notional)

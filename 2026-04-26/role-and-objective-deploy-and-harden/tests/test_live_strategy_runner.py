@@ -188,7 +188,7 @@ class LiveStrategyRunnerTests(unittest.TestCase):
                 if "position" in command:
                     return SimpleNamespace(
                         returncode=0,
-                        stdout='[{"symbol":"NEE","qty":"0.5","market_value":"25"}]',
+                        stdout='[{"symbol":"NEE","qty_available":"0.10447574","qty":"0.10447574","market_value":"25"}]',
                         stderr="",
                     )
                 if "clock" in command:
@@ -219,7 +219,7 @@ class LiveStrategyRunnerTests(unittest.TestCase):
             self.assertTrue(sell_commands)
             sell = sell_commands[0]
             self.assertEqual(sell[sell.index("--symbol") + 1], "NEE")
-            self.assertEqual(sell[sell.index("--qty") + 1], "0.500000")
+            self.assertEqual(sell[sell.index("--qty") + 1], "0.104475")
             client_order_id = sell[sell.index("--client-order-id") + 1]
             self.assertIn("-live-exit", client_order_id)
             self.assertNotIn("-paper-", client_order_id)
