@@ -1,4 +1,7 @@
 .vercel
+.DS_Store
+tokens.txt
+/Trading
 .env
 .env.*
 .sshpw

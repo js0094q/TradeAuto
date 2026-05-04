@@ -156,6 +156,47 @@ class HealthReadinessTests(unittest.TestCase):
         self.assertEqual(metrics["open_orders"], 1)
         self.assertIsNone(metrics["latest_live_error"])
 
+    def test_live_strategy_mode_start_suppresses_prior_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_dir = Path(tmpdir) / "state"
+            log_dir = Path(tmpdir) / "logs"
+            state_dir.mkdir()
+            log_dir.mkdir()
+            (state_dir / "kill_switch.enabled").write_text("disabled\n", encoding="utf-8")
+            live_payload = {
+                "ok": True,
+                "mode": "live",
+                "timestamp": "2026-05-04T15:38:23Z",
+                "live_execution": {"status": "complete", "market_open": True, "runtime_gate_passed": True},
+                "strategies": [],
+            }
+            (state_dir / "live_strategy_status.json").write_text(json.dumps(live_payload), encoding="utf-8")
+            (log_dir / "live.err.log").write_text(
+                "\n".join(
+                    (
+                        "Traceback (most recent call last):",
+                        "subprocess.TimeoutExpired: old quote timeout",
+                        "2026-05-04 15:38:11,234 INFO trading engine started in live strategy mode",
+                        "2026-05-04 15:38:23,976 INFO live strategy cycle complete selected=XLK live_execution=complete",
+                    )
+                ),
+                encoding="utf-8",
+            )
+            settings = _paper_settings(
+                tmpdir,
+                {
+                    "APP_ENV": "live",
+                    "TRADING_MODE": "live",
+                    "LIVE_TRADING_ENABLED": "true",
+                    "ALPACA_BASE_URL": "https://api.alpaca.markets",
+                    "ALPACA_API_KEY": "key",
+                    "ALPACA_API_SECRET": "secret",
+                    "ALPACA_CLI_PROFILE": "live",
+                },
+            )
+            metrics = metrics_payload(settings)
+        self.assertIsNone(metrics["latest_live_error"])
+
 
 def _paper_settings(tmpdir: str, overrides: dict[str, str] | None = None) -> object:
     values = {

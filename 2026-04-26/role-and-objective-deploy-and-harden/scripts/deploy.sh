@@ -21,10 +21,13 @@ TIMESTAMP="$(date -u +%Y%m%d%H%M%S)"
 RELEASE_DIR="${RELEASES_DIR}/${TIMESTAMP}"
 if [[ "${MODE}" == "live" ]]; then
   SERVICES=(trading-api.service trading-engine-live.service telegram-bot.service)
+  STOP_SERVICES=(trading-engine-paper.service trading-engine-test.service)
 elif [[ "${MODE}" == "paper" ]]; then
   SERVICES=(trading-api.service trading-engine-paper.service telegram-bot.service)
+  STOP_SERVICES=(trading-engine-live.service trading-engine-test.service)
 else
   SERVICES=(trading-api.service trading-engine-test.service telegram-bot.service)
+  STOP_SERVICES=(trading-engine-live.service trading-engine-paper.service)
 fi
 
 notify_telegram() {
@@ -96,7 +99,12 @@ fi
 ln -sfn "${RELEASE_DIR}" "${CURRENT_LINK}"
 sudo cp ops/systemd/*.service /etc/systemd/system/
 sudo systemctl daemon-reload
+for service in "${STOP_SERVICES[@]}"; do
+  sudo systemctl stop "${service}" || true
+  sudo systemctl disable "${service}" || true
+done
 for service in "${SERVICES[@]}"; do
+  sudo systemctl enable "${service}"
   sudo systemctl restart "${service}"
 done
 

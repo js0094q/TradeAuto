@@ -353,8 +353,12 @@ def _latest_live_engine_error(path: Path) -> str | None:
     if not lines:
         return None
     last_started_index = -1
+    live_start_markers = (
+        "trading engine started in live mode",
+        "trading engine started in live strategy mode",
+    )
     for index, line in enumerate(lines):
-        if "trading engine started in live mode" in line:
+        if any(marker in line for marker in live_start_markers):
             last_started_index = index
     for index in range(len(lines) - 1, -1, -1):
         line = lines[index]
