@@ -39,7 +39,12 @@ class AlpacaBroker:
         return self._trading_client().get_orders()
 
     def validate_connectivity(self) -> dict[str, bool]:
-        self.get_account()
+        account = self.get_account()
+        expected_account_number = self.settings.raw.get("ALPACA_EXPECTED_ACCOUNT_NUMBER", "").strip()
+        actual_account_number = str(getattr(account, "account_number", "") or "").strip()
+        if expected_account_number and actual_account_number != expected_account_number:
+            raise BrokerUnavailable(
+                f"alpaca account mismatch: expected {expected_account_number}, got {actual_account_number or 'unknown'}"
+            )
         self.get_clock()
         return {"account": True, "clock": True}
-

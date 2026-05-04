@@ -138,6 +138,43 @@ class LiveStrategyRunnerTests(unittest.TestCase):
             self.assertEqual(payload["live_execution"]["status"], "blocked_by_runtime_gate")
             self.assertIn("live_strategy_confirmation_missing", payload["live_execution"]["runtime_gate_blocks"])
 
+    def test_expected_account_mismatch_blocks_live_cycle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, "state").mkdir()
+            Path(tmpdir, "state", "kill_switch.enabled").write_text("disabled\n", encoding="utf-8")
+
+            def fake_run(command: list[str], **_kwargs: object) -> object:
+                if "account" in command:
+                    return SimpleNamespace(
+                        returncode=0,
+                        stdout='{"account_number":"592324054","equity":"150","buying_power":"150"}',
+                        stderr="",
+                    )
+                if "clock" in command:
+                    return SimpleNamespace(returncode=0, stdout='{"is_open":true}', stderr="")
+                return SimpleNamespace(returncode=1, stdout="", stderr="unexpected command")
+
+            live_settings = settings(
+                tmpdir,
+                {
+                    "LIVE_STRATEGY_EXECUTION_ENABLED": "true",
+                    "LIVE_STRATEGY_CONFIRMATION": live_strategy_runner.LIVE_STRATEGY_CONFIRMATION,
+                    "ALPACA_EXPECTED_ACCOUNT_NUMBER": "238880875",
+                },
+            )
+            with (
+                patch.object(live_strategy_runner.LOGGER, "error"),
+                patch.object(live_strategy_runner.subprocess, "run", side_effect=fake_run),
+            ):
+                payload = live_strategy_runner.run_once(live_settings)
+
+            execution = payload["live_execution"]
+            self.assertEqual(execution["status"], "blocked_account_mismatch")
+            self.assertEqual(execution["expected_account_number"], "238880875")
+            self.assertEqual(execution["actual_account_number"], "592324054")
+            self.assertIn("alpaca_account_number_mismatch", execution["runtime_gate_blocks"])
+            self.assertEqual(execution["orders"], [])
+
     def test_explicit_live_strategy_gate_submits_limit_orders(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             Path(tmpdir, "state").mkdir()

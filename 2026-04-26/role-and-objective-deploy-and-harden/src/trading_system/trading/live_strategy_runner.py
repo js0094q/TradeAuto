@@ -112,6 +112,49 @@ def _account_snapshot(settings: Settings) -> tuple[dict[str, Any], str | None]:
     return payload, None
 
 
+def _expected_account_number(settings: Settings) -> str:
+    return str(settings.raw.get("ALPACA_EXPECTED_ACCOUNT_NUMBER") or "").strip()
+
+
+def _account_number(account: dict[str, Any]) -> str:
+    return str(account.get("account_number") or "").strip()
+
+
+def _account_mismatch_payload(
+    settings: Settings,
+    *,
+    account: dict[str, Any],
+    kill_switch_enabled: bool,
+) -> dict[str, Any]:
+    shared = _shared_dir(settings)
+    expected = _expected_account_number(settings)
+    actual = _account_number(account) or "unknown"
+    market_clock = _market_clock(settings)
+    execution = _execute_live_orders(
+        settings,
+        shared=shared,
+        selected_orders=(),
+        quotes={},
+        market_clock=market_clock,
+        account=account,
+        positions_snapshot={},
+        position_lookup_error=None,
+        kill_switch_enabled=kill_switch_enabled,
+    )
+    execution["status"] = "blocked_account_mismatch"
+    execution["expected_account_number"] = expected
+    execution["actual_account_number"] = actual
+    execution.setdefault("runtime_gate_blocks", []).append("alpaca_account_number_mismatch")
+    return {
+        "ok": True,
+        "mode": "live",
+        "timestamp": datetime.now(UTC).isoformat(),
+        "kill_switch_enabled": kill_switch_enabled,
+        "live_execution": execution,
+        "strategies": [],
+    }
+
+
 def _positions_snapshot(settings: Settings) -> tuple[dict[str, dict[str, float | str | None]], str | None]:
     payload, error = _json_cli(settings, "position", "list")
     if error:
@@ -621,6 +664,17 @@ def run_once(settings: Settings) -> dict[str, Any]:
     account, account_error = _account_snapshot(settings)
     if account_error:
         raise RuntimeError("live account lookup failed: " + account_error)
+    expected_account_number = _expected_account_number(settings)
+    if expected_account_number and _account_number(account) != expected_account_number:
+        payload = _account_mismatch_payload(settings, account=account, kill_switch_enabled=kill_switch_enabled)
+        append_jsonl(shared / "logs" / "live_strategy_rebalances.jsonl", payload)
+        _write_status(shared, payload)
+        LOGGER.error(
+            "live alpaca account mismatch: expected=%s actual=%s",
+            expected_account_number,
+            _account_number(account) or "unknown",
+        )
+        return payload
     positions_snapshot, position_lookup_error = _positions_snapshot(settings)
     position_symbols = sorted(
         symbol
