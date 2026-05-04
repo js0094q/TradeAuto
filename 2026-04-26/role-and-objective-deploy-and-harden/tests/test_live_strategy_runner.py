@@ -325,6 +325,126 @@ class LiveStrategyRunnerTests(unittest.TestCase):
             self.assertNotIn("max open positions reached", execution["orders"][0]["risk_blocks"])
             self.assertTrue(captured)
 
+    def test_live_duplicate_buy_for_existing_position_uses_increment_order_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_dir = Path(tmpdir, "state")
+            state_dir.mkdir()
+            today = live_strategy_runner.date.today().isoformat().replace("-", "")
+            base_client_order_id = f"etrv1-{today}-XLE-live-entry"
+            (state_dir / "live_strategy_orders.json").write_text(
+                json.dumps({"client_order_ids": [base_client_order_id], "orders": {}}),
+                encoding="utf-8",
+            )
+            captured: list[list[str]] = []
+
+            def fake_run(command: list[str], **_kwargs: object) -> object:
+                if "order" in command and "submit" in command:
+                    captured.append(command)
+                    return SimpleNamespace(returncode=0, stdout='{"id":"live-order"}', stderr="")
+                return SimpleNamespace(returncode=1, stdout="", stderr="unexpected command")
+
+            live_settings = settings(
+                tmpdir,
+                {
+                    "LIVE_STRATEGY_EXECUTION_ENABLED": "true",
+                    "LIVE_STRATEGY_CONFIRMATION": live_strategy_runner.LIVE_STRATEGY_CONFIRMATION,
+                    "MAX_TRADES_PER_DAY": "10",
+                },
+            )
+            with patch.object(live_strategy_runner.subprocess, "run", side_effect=fake_run):
+                execution = live_strategy_runner._execute_live_orders(
+                    live_settings,
+                    shared=Path(tmpdir),
+                    selected_orders=(
+                        OrderIntent(
+                            strategy_name="equity_etf_trend_regime_v1",
+                            symbol="XLE",
+                            side="buy",
+                            target_weight=0.25,
+                            quantity=None,
+                            notional=25.0,
+                            reason="top_3_rank_and_regime_passed",
+                            mode="live",
+                        ),
+                    ),
+                    quotes={"XLE": {"bid": 59.00, "ask": 59.05}},
+                    market_clock={"is_open": True},
+                    account={"equity": "100", "buying_power": "100"},
+                    positions_snapshot={
+                        "XLE": {"symbol": "XLE", "qty": 0.429332, "market_value": 25.35},
+                    },
+                    position_lookup_error=None,
+                    kill_switch_enabled=False,
+                )
+
+            order = execution["orders"][0]
+            self.assertEqual(order["status"], "submitted")
+            self.assertEqual(order["duplicate_policy"], "same_symbol_position_increment")
+            self.assertNotEqual(order["client_order_id"], base_client_order_id)
+            self.assertTrue(captured)
+            client_order_id = captured[0][captured[0].index("--client-order-id") + 1]
+            self.assertEqual(client_order_id, order["client_order_id"])
+            self.assertIn("-live-entry-", client_order_id)
+            state = json.loads((state_dir / "live_strategy_orders.json").read_text(encoding="utf-8"))
+            self.assertIn(base_client_order_id, state["client_order_ids"])
+            self.assertIn(client_order_id, state["client_order_ids"])
+
+    def test_live_duplicate_sell_stays_blocked_as_already_submitted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_dir = Path(tmpdir, "state")
+            state_dir.mkdir()
+            today = live_strategy_runner.date.today().isoformat().replace("-", "")
+            base_client_order_id = f"etrv1-{today}-XLE-live-exit"
+            (state_dir / "live_strategy_orders.json").write_text(
+                json.dumps({"client_order_ids": [base_client_order_id], "orders": {}}),
+                encoding="utf-8",
+            )
+            captured: list[list[str]] = []
+
+            def fake_run(command: list[str], **_kwargs: object) -> object:
+                if "order" in command and "submit" in command:
+                    captured.append(command)
+                    return SimpleNamespace(returncode=0, stdout='{"id":"live-order"}', stderr="")
+                return SimpleNamespace(returncode=1, stdout="", stderr="unexpected command")
+
+            live_settings = settings(
+                tmpdir,
+                {
+                    "LIVE_STRATEGY_EXECUTION_ENABLED": "true",
+                    "LIVE_STRATEGY_CONFIRMATION": live_strategy_runner.LIVE_STRATEGY_CONFIRMATION,
+                    "MAX_TRADES_PER_DAY": "10",
+                },
+            )
+            with patch.object(live_strategy_runner.subprocess, "run", side_effect=fake_run):
+                execution = live_strategy_runner._execute_live_orders(
+                    live_settings,
+                    shared=Path(tmpdir),
+                    selected_orders=(
+                        OrderIntent(
+                            strategy_name="equity_etf_trend_regime_v1",
+                            symbol="XLE",
+                            side="sell",
+                            target_weight=0.0,
+                            quantity=None,
+                            notional=None,
+                            reason="deselected",
+                            mode="live",
+                        ),
+                    ),
+                    quotes={"XLE": {"bid": 59.00, "ask": 59.05}},
+                    market_clock={"is_open": True},
+                    account={"equity": "100", "buying_power": "100"},
+                    positions_snapshot={
+                        "XLE": {"symbol": "XLE", "qty": 0.429332, "market_value": 25.35},
+                    },
+                    position_lookup_error=None,
+                    kill_switch_enabled=False,
+                )
+
+            self.assertEqual(execution["orders"][0]["status"], "already_submitted")
+            self.assertEqual(execution["orders"][0]["client_order_id"], base_client_order_id)
+            self.assertFalse(captured)
+
     def test_live_buy_for_new_position_still_hits_open_position_limit(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             Path(tmpdir, "state").mkdir()

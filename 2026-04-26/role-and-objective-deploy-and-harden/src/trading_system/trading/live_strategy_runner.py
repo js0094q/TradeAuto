@@ -237,6 +237,19 @@ def _live_client_order_id(strategy_name: str, symbol: str, trade_date: str, *, s
     return f"{prefix}-{trade_date}-{symbol}-live-{clean_suffix}"[:48]
 
 
+def _append_client_order_id_suffix(client_order_id: str, suffix: str) -> str:
+    suffix_text = f"-{suffix}"
+    return f"{client_order_id[: 48 - len(suffix_text)]}{suffix_text}"[:48]
+
+
+def _next_position_increment_client_order_id(client_order_id: str, seen: set[str]) -> str | None:
+    for index in range(2, 100):
+        candidate = _append_client_order_id_suffix(client_order_id, f"add{index}")
+        if candidate not in seen:
+            return candidate
+    return None
+
+
 def _load_order_state(shared: Path) -> dict[str, Any]:
     path = _state_path(shared)
     if not path.exists():
@@ -419,10 +432,23 @@ def _execute_live_orders(
             entry["current_position_qty"] = round(current_qty, 6)
         if current_notional is not None:
             entry["current_position_notional_usd"] = round(current_notional, 2)
+        increasing_existing_position = intent.side == "buy" and current_qty is not None and current_qty > 0.0
         if client_order_id in seen:
-            entry["status"] = "already_submitted"
-            payload["orders"].append(entry)
-            continue
+            if increasing_existing_position:
+                base_client_order_id = client_order_id
+                next_client_order_id = _next_position_increment_client_order_id(base_client_order_id, seen)
+                if next_client_order_id is None:
+                    entry["status"] = "blocked_duplicate_id_exhausted"
+                    payload["orders"].append(entry)
+                    continue
+                client_order_id = next_client_order_id
+                entry["client_order_id"] = client_order_id
+                entry["base_client_order_id"] = base_client_order_id
+                entry["duplicate_policy"] = "same_symbol_position_increment"
+            else:
+                entry["status"] = "already_submitted"
+                payload["orders"].append(entry)
+                continue
 
         if intent.side == "buy":
             notional = _live_order_notional(
@@ -504,10 +530,12 @@ def _execute_live_orders(
             entry["submitted"] = True
             entry["status"] = "submitted"
             submitted_ids.append(client_order_id)
+            seen.add(client_order_id)
             trades_today += 1
             if intent.side == "buy":
                 remaining_buying_power = max(remaining_buying_power - notional, 0.0)
-                open_positions += 1
+                if current_qty is None or current_qty <= 0.0:
+                    open_positions += 1
             if isinstance(order_metadata, dict):
                 order_metadata[client_order_id] = {
                     "symbol": intent.symbol,
