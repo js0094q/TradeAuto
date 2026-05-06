@@ -269,6 +269,9 @@ def validate_settings(settings: Settings, *, mode: str | None = None) -> Validat
             errors.append("ALPACA_API_KEY must be set for live startup")
         if not settings.alpaca_api_secret or settings.alpaca_api_secret == "CHANGE_ME":
             errors.append("ALPACA_API_SECRET must be set for live startup")
+        expected_account_number = settings.raw.get("ALPACA_EXPECTED_ACCOUNT_NUMBER", "").strip()
+        if not expected_account_number or expected_account_number == "CHANGE_ME":
+            errors.append("ALPACA_EXPECTED_ACCOUNT_NUMBER must be set for live startup")
         if not settings.telegram_bot_token or settings.telegram_bot_token == "CHANGE_ME":
             errors.append("TELEGRAM_BOT_TOKEN must be set for live startup")
         if not settings.telegram_admin_chat_ids or "CHANGE_ME" in settings.telegram_admin_chat_ids:

@@ -425,6 +425,10 @@ def _execute_live_orders(
         entry["limit_price"] = limit_price
         if position_lookup_error:
             entry["position_lookup_error"] = position_lookup_error
+            if intent.side == "buy":
+                entry["status"] = "blocked_position_lookup_unavailable"
+                payload["orders"].append(entry)
+                continue
         position = _position_for_symbol(positions_snapshot, intent.symbol)
         current_qty = _float_or_none(position.get("qty")) if isinstance(position, dict) else None
         current_notional = _float_or_none(position.get("market_value")) if isinstance(position, dict) else None
@@ -451,14 +455,41 @@ def _execute_live_orders(
                 continue
 
         if intent.side == "buy":
-            notional = _live_order_notional(
+            target_notional = _live_order_notional(
                 settings,
                 intent,
                 account_equity=account_equity,
                 remaining_buying_power=remaining_buying_power,
             )
+            entry["target_position_notional_usd"] = round(target_notional, 2)
+            if current_qty is not None and current_qty > 0.0:
+                if current_notional is None:
+                    entry["status"] = "blocked_position_notional_unknown"
+                    payload["orders"].append(entry)
+                    continue
+                max_position_notional = settings.risk.max_position_notional_usd
+                target_position_notional = (
+                    min(target_notional, max_position_notional)
+                    if max_position_notional is not None
+                    else target_notional
+                )
+                entry["target_position_notional_usd"] = round(target_position_notional, 2)
+                notional = min(
+                    max(target_position_notional - current_notional, 0.0),
+                    max(remaining_buying_power, 0.0),
+                )
+                entry["position_increment_notional_usd"] = round(notional, 2)
+                if notional <= 0.0:
+                    entry["notional_usd"] = 0.0
+                    entry["status"] = "already_at_or_above_target_position"
+                    payload["orders"].append(entry)
+                    continue
+            else:
+                notional = target_notional
             quantity = _executable_quantity(max(notional / limit_price, 0.0))
             notional = round(abs(quantity * limit_price), 2)
+            if current_notional is not None:
+                entry["projected_position_notional_usd"] = round(current_notional + notional, 2)
             risk_open_positions = max(open_positions - 1, 0) if current_qty is not None and current_qty > 0.0 else open_positions
         else:
             if current_qty is None or current_qty <= 0.0:

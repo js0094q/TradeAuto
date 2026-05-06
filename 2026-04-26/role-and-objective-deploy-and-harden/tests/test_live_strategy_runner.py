@@ -71,6 +71,7 @@ def settings(tmpdir: str, overrides: dict[str, str] | None = None) -> object:
         "ALPACA_BASE_URL": "https://api.alpaca.markets",
         "ALPACA_CLI_PROFILE": "live",
         "ALPACA_LIVE_TRADE": "true",
+        "ALPACA_EXPECTED_ACCOUNT_NUMBER": "238880875",
         "TELEGRAM_BOT_TOKEN": "token",
         "TELEGRAM_ALLOWED_CHAT_IDS": "123",
         "TELEGRAM_ADMIN_CHAT_IDS": "123",
@@ -104,7 +105,11 @@ class LiveStrategyRunnerTests(unittest.TestCase):
 
             def fake_run(command: list[str], **_kwargs: object) -> object:
                 if "account" in command:
-                    return SimpleNamespace(returncode=0, stdout='{"equity":"100","buying_power":"100"}', stderr="")
+                    return SimpleNamespace(
+                        returncode=0,
+                        stdout='{"account_number":"238880875","equity":"100","buying_power":"100"}',
+                        stderr="",
+                    )
                 if "clock" in command:
                     return SimpleNamespace(returncode=0, stdout='{"is_open":true}', stderr="")
                 return SimpleNamespace(returncode=1, stdout="", stderr="unexpected command")
@@ -125,7 +130,11 @@ class LiveStrategyRunnerTests(unittest.TestCase):
 
             def fake_run(command: list[str], **_kwargs: object) -> object:
                 if "account" in command:
-                    return SimpleNamespace(returncode=0, stdout='{"equity":"100","buying_power":"100"}', stderr="")
+                    return SimpleNamespace(
+                        returncode=0,
+                        stdout='{"account_number":"238880875","equity":"100","buying_power":"100"}',
+                        stderr="",
+                    )
                 if "clock" in command:
                     return SimpleNamespace(returncode=0, stdout='{"is_open":true}', stderr="")
                 return SimpleNamespace(returncode=1, stdout="", stderr="unexpected command")
@@ -184,7 +193,11 @@ class LiveStrategyRunnerTests(unittest.TestCase):
             def fake_run(command: list[str], **kwargs: object) -> object:
                 captured.append((command, dict(kwargs.get("env") or {})))
                 if "account" in command:
-                    return SimpleNamespace(returncode=0, stdout='{"equity":"100","buying_power":"100"}', stderr="")
+                    return SimpleNamespace(
+                        returncode=0,
+                        stdout='{"account_number":"238880875","equity":"100","buying_power":"100"}',
+                        stderr="",
+                    )
                 if "position" in command:
                     return SimpleNamespace(returncode=0, stdout="[]", stderr="")
                 if "clock" in command:
@@ -234,7 +247,11 @@ class LiveStrategyRunnerTests(unittest.TestCase):
 
             def fake_run(command: list[str], **_kwargs: object) -> object:
                 if "account" in command:
-                    return SimpleNamespace(returncode=0, stdout='{"equity":"100","buying_power":"100"}', stderr="")
+                    return SimpleNamespace(
+                        returncode=0,
+                        stdout='{"account_number":"238880875","equity":"100","buying_power":"100"}',
+                        stderr="",
+                    )
                 if "position" in command:
                     return SimpleNamespace(
                         returncode=0,
@@ -312,7 +329,7 @@ class LiveStrategyRunnerTests(unittest.TestCase):
                     market_clock={"is_open": True},
                     account={"equity": "100", "buying_power": "100"},
                     positions_snapshot={
-                        "XLE": {"symbol": "XLE", "qty": 0.429332, "market_value": 25.35},
+                        "XLE": {"symbol": "XLE", "qty": 0.338352, "market_value": 20.0},
                         "XLK": {"symbol": "XLK", "qty": 0.1567, "market_value": 24.64},
                         "QQQ": {"symbol": "QQQ", "qty": 0.0376, "market_value": 24.76},
                     },
@@ -371,7 +388,7 @@ class LiveStrategyRunnerTests(unittest.TestCase):
                     market_clock={"is_open": True},
                     account={"equity": "100", "buying_power": "100"},
                     positions_snapshot={
-                        "XLE": {"symbol": "XLE", "qty": 0.429332, "market_value": 25.35},
+                        "XLE": {"symbol": "XLE", "qty": 0.169176, "market_value": 10.0},
                     },
                     position_lookup_error=None,
                     kill_switch_enabled=False,
@@ -380,6 +397,10 @@ class LiveStrategyRunnerTests(unittest.TestCase):
             order = execution["orders"][0]
             self.assertEqual(order["status"], "submitted")
             self.assertEqual(order["duplicate_policy"], "same_symbol_position_increment")
+            self.assertEqual(order["target_position_notional_usd"], 25.0)
+            self.assertEqual(order["position_increment_notional_usd"], 15.0)
+            self.assertLess(order["notional_usd"], 25.0)
+            self.assertGreater(order["projected_position_notional_usd"], 24.0)
             self.assertNotEqual(order["client_order_id"], base_client_order_id)
             self.assertTrue(captured)
             client_order_id = captured[0][captured[0].index("--client-order-id") + 1]
@@ -485,6 +506,53 @@ class LiveStrategyRunnerTests(unittest.TestCase):
             self.assertEqual(execution["orders"][0]["status"], "blocked_by_risk_engine")
             self.assertIn("max open positions reached", execution["orders"][0]["risk_blocks"])
 
+    def test_live_buy_blocks_when_position_lookup_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, "state").mkdir()
+            captured: list[list[str]] = []
+
+            def fake_run(command: list[str], **_kwargs: object) -> object:
+                if "order" in command and "submit" in command:
+                    captured.append(command)
+                    return SimpleNamespace(returncode=0, stdout='{"id":"live-order"}', stderr="")
+                return SimpleNamespace(returncode=1, stdout="", stderr="unexpected command")
+
+            live_settings = settings(
+                tmpdir,
+                {
+                    "LIVE_STRATEGY_EXECUTION_ENABLED": "true",
+                    "LIVE_STRATEGY_CONFIRMATION": live_strategy_runner.LIVE_STRATEGY_CONFIRMATION,
+                },
+            )
+            with patch.object(live_strategy_runner.subprocess, "run", side_effect=fake_run):
+                execution = live_strategy_runner._execute_live_orders(
+                    live_settings,
+                    shared=Path(tmpdir),
+                    selected_orders=(
+                        OrderIntent(
+                            strategy_name="equity_etf_trend_regime_v1",
+                            symbol="XLF",
+                            side="buy",
+                            target_weight=0.25,
+                            quantity=None,
+                            notional=25.0,
+                            reason="top_3_rank_and_regime_passed",
+                            mode="live",
+                        ),
+                    ),
+                    quotes={"XLF": {"bid": 51.00, "ask": 51.05}},
+                    market_clock={"is_open": True},
+                    account={"equity": "100", "buying_power": "100"},
+                    positions_snapshot={},
+                    position_lookup_error="alpaca position lookup failed",
+                    kill_switch_enabled=False,
+                )
+
+            order = execution["orders"][0]
+            self.assertEqual(order["status"], "blocked_position_lookup_unavailable")
+            self.assertEqual(order["position_lookup_error"], "alpaca position lookup failed")
+            self.assertFalse(captured)
+
     def test_live_strategy_uses_same_day_exit_fallback_when_bars_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             state_dir = Path(tmpdir, "state")
@@ -520,7 +588,11 @@ class LiveStrategyRunnerTests(unittest.TestCase):
 
             def fake_run(command: list[str], **_kwargs: object) -> object:
                 if "account" in command:
-                    return SimpleNamespace(returncode=0, stdout='{"equity":"100","buying_power":"100"}', stderr="")
+                    return SimpleNamespace(
+                        returncode=0,
+                        stdout='{"account_number":"238880875","equity":"100","buying_power":"100"}',
+                        stderr="",
+                    )
                 if "position" in command:
                     return SimpleNamespace(
                         returncode=0,
@@ -569,7 +641,11 @@ class LiveStrategyRunnerTests(unittest.TestCase):
 
             def fake_run(command: list[str], **_kwargs: object) -> object:
                 if "account" in command:
-                    return SimpleNamespace(returncode=0, stdout='{"equity":"100","buying_power":"100"}', stderr="")
+                    return SimpleNamespace(
+                        returncode=0,
+                        stdout='{"account_number":"238880875","equity":"100","buying_power":"100"}',
+                        stderr="",
+                    )
                 if "position" in command:
                     return SimpleNamespace(returncode=0, stdout="[]", stderr="")
                 if "clock" in command:

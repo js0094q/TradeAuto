@@ -21,6 +21,7 @@ BASE_ENV = {
     "ALPACA_DATA_FEED": "iex",
     "ALPACA_CLI_ENABLED": "true",
     "ALPACA_CLI_PROFILE": "live",
+    "ALPACA_EXPECTED_ACCOUNT_NUMBER": "238880875",
     "TELEGRAM_BOT_TOKEN": "token",
     "TELEGRAM_ALLOWED_CHAT_IDS": "1",
     "TELEGRAM_ADMIN_CHAT_IDS": "1",
@@ -61,6 +62,16 @@ class ValidateEnvTests(unittest.TestCase):
             kill_file.write_text("disabled\n", encoding="utf-8")
             result = validate_settings(build_settings(dict(BASE_ENV, KILL_SWITCH_FILE=str(kill_file))), mode="live")
         self.assertTrue(result.ok, result.errors)
+
+    def test_live_requires_expected_alpaca_account_number(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            kill_file = Path(directory) / "kill_switch.enabled"
+            kill_file.write_text("disabled\n", encoding="utf-8")
+            values = dict(BASE_ENV, KILL_SWITCH_FILE=str(kill_file))
+            values.pop("ALPACA_EXPECTED_ACCOUNT_NUMBER")
+            result = validate_settings(build_settings(values), mode="live")
+        self.assertFalse(result.ok)
+        self.assertIn("ALPACA_EXPECTED_ACCOUNT_NUMBER must be set for live startup", result.errors)
 
     def test_non_live_rejects_live_flag(self) -> None:
         values = dict(
